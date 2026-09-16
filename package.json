@@ -1,0 +1,27 @@
+{
+  "name": "transrate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "オフライン対応の双方向自動音声翻訳PWA",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:https": "HTTPS=1 vite --host",
+    "dev:api": "TRANSRATE_ENV_FILE=$PWD/.env TRANSRATE_LOG_DIR=$PWD/logs php -S localhost:8787 -t server",
+    "deploy": "./scripts/deploy.sh",
+    "logs:client": "./scripts/client-logs.sh",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "sass": "^1.104.1",
+    "vite": "^8.3.0",
+    "vite-plugin-pwa": "^1.3.0"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@ricky0123/vad-web": "^0.0.31",
+    "opencc-js": "^1.4.2"
+  }
+}
