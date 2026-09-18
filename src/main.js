@@ -771,6 +771,90 @@ window.addEventListener('pageshow', (e) => {
 // ------------------------------------------------------------
 const timeFmt = (ts) => new Date(ts).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 
+function bindLongPress(element, onLongPress, ms = 450) {
+  let timer = null;
+  let startX = 0;
+  let startY = 0;
+  let didTrigger = false;
+
+  const cancel = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    element.classList.remove('bubble__dst--pressing');
+  };
+
+  const onPointerDown = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    didTrigger = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    element.classList.add('bubble__dst--pressing');
+
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      didTrigger = true;
+      element.classList.remove('bubble__dst--pressing');
+      try {
+        window.getSelection()?.removeAllRanges();
+      } catch {}
+      if (typeof navigator.vibrate === 'function') {
+        try {
+          navigator.vibrate(40);
+        } catch {}
+      }
+      onLongPress();
+    }, ms);
+  };
+
+  const onPointerMove = (e) => {
+    if (!timer) return;
+    const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+    if (dist > 10) {
+      cancel();
+    }
+  };
+
+  const onPointerUp = () => {
+    cancel();
+  };
+
+  const onPointerCancel = () => {
+    cancel();
+  };
+
+  const onContextMenu = (e) => {
+    if (didTrigger || e.pointerType === 'touch') {
+      e.preventDefault();
+      didTrigger = false;
+    }
+  };
+
+  const onClick = (e) => {
+    if (didTrigger) {
+      e.preventDefault();
+      e.stopPropagation();
+      didTrigger = false;
+    }
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onLongPress();
+    }
+  };
+
+  element.addEventListener('pointerdown', onPointerDown);
+  element.addEventListener('pointermove', onPointerMove);
+  element.addEventListener('pointerup', onPointerUp);
+  element.addEventListener('pointercancel', onPointerCancel);
+  element.addEventListener('contextmenu', onContextMenu);
+  element.addEventListener('click', onClick);
+  element.addEventListener('keydown', onKeyDown);
+}
 
 function bubbleEl(entry) {
   const side = entry.srcLang === settings.langA ? 'a' : 'b';
@@ -791,7 +875,7 @@ function bubbleEl(entry) {
         <button class="btn btn--ghost btn--small" type="button" data-action="cancel">キャンセル</button>
       </div>
     </div>
-    <p class="bubble__dst"></p>
+    <p class="bubble__dst" tabindex="0" role="button" aria-label="長押しで原文を再編集" title="長押しで原文を再編集"></p>
     <div class="bubble__actions">
       <button class="btn btn--ghost btn--small" type="button" data-action="edit">
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -826,6 +910,9 @@ function bubbleEl(entry) {
     setTimeout(() => {
       editInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, 50);
+    if (from === 'longpress') {
+      log.info('翻訳の長押しで原文編集を開く', { id: entry.id });
+    }
   };
 
   const closeEditor = () => {
@@ -842,6 +929,7 @@ function bubbleEl(entry) {
   });
   editBtn.addEventListener('click', () => openEditor('button'));
   cancelBtn.addEventListener('click', closeEditor);
+  bindLongPress(dstEl, () => openEditor('longpress'));
 
   editInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {

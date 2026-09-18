@@ -364,6 +364,11 @@ button {
     .bubble__dst {
       font-size: 16px;
       color: var(--fg-muted);
+      cursor: default;
+      pointer-events: none;
+      &:hover {
+        background: none;
+      }
     }
   }
   &__meta {
@@ -431,11 +436,37 @@ button {
     gap: 6px;
   }
   &__dst {
-    margin: 4px 0 0;
+    margin: 2px -4px 0;
     font-size: 22px;
     line-height: 1.35;
     font-weight: 600;
     word-break: break-word;
+    border-radius: var(--radius-sm);
+    padding: 2px 4px;
+    cursor: pointer;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: pan-y;
+    transition: background 0.15s, transform 0.15s, opacity 0.15s;
+    outline: none;
+
+    @media (hover: hover) {
+      &:hover {
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+      }
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    &--pressing {
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      transform: scale(0.985);
+      opacity: 0.85;
+    }
   }
   &__actions {
     display: flex;
