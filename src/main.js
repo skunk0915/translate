@@ -160,7 +160,28 @@ const downloadWaiters = new Map(); // key -> {resolve,reject,promise} ファイ�
 const unloadWaiters = new Map(); // key -> {resolve,reject}
 let loadBlockedBy = null; // 前回、読み込み中に強制終了したときの記録。同じ強制終了を繰り返さないよう自動読み込みを止める
 const loaded = new Set(); // 読み込み済みモデル key
-const cachedKeys = new Map(); // key -> 必要ファイルがすべて端末(Cache API)に保存済みか
+const CACHED_KEYS_STORAGE_KEY = 'transrate.cachedKeys';
+function loadCachedKeysFromStorage() {
+  const map = new Map();
+  try {
+    const raw = localStorage.getItem(CACHED_KEYS_STORAGE_KEY);
+    if (raw) {
+      const obj = JSON.parse(raw);
+      for (const [k, v] of Object.entries(obj)) map.set(k, v);
+    }
+  } catch {}
+  return map;
+}
+function saveCachedKeysToStorage() {
+  try {
+    localStorage.setItem(CACHED_KEYS_STORAGE_KEY, JSON.stringify(Object.fromEntries(cachedKeys)));
+  } catch {}
+}
+const cachedKeys = loadCachedKeysFromStorage(); // key -> 必要ファイルがすべて端末(Cache API)に保存済みか
+function setCachedKey(key, value) {
+  cachedKeys.set(key, value);
+  saveCachedKeysToStorage();
+}
 let preparing = 0; // ensureModels 実行中の数(逐次読み込みの合間も「読み込み中」と表示するため)
 const progress = new Map(); // key -> { files: Map(file -> {loaded,total}) }
 let seq = 0;
@@ -314,10 +335,8 @@ const currentRequired = () => requiredModels(settings.langA, settings.langB, set
 
 // iPhone はメモリ上限が低く、超えるとページごと強制終了される。
 // 実機ログ(2026-09-16): 音声認識(大)249MB + 翻訳109MB の読み込みは成功し、そこへ翻訳145MB を読み込み始めた直後に強制終了。
-// 読み込み中は同じ大きさの一時メモリも使うため、同時にメモリへ載せるモデルの合計(ファイルサイズ)をこの値までに抑える。
-const IOS_MODEL_BUDGET_MB = 340;
-// 全モデルが上限に収まらないときは、音声認識 + 今の翻訳方向に必要な翻訳モデルだけを載せ、方向が変わったら入れ替える
-const usesSwap = () => isIOS && currentRequired().reduce((sum, m) => sum + m.sizeMB, 0) > IOS_MODEL_BUDGET_MB;
+// iOS端末では常時メモリへ載せるのは音声認識(Whisper)のみとし、翻訳モデルは翻訳時に1つずつ入れ替えてメモリ超過を防ぐ。
+const usesSwap = () => isIOS;
 // 入れ替え方式では、翻訳モデルは保存済みなら翻訳時に読み込むので、未読み込みでも準備完了とみなす
 const needsLoad = (m) => !loaded.has(m.key) && !(usesSwap() && m.kind === 'mt' && cachedKeys.get(m.key) === true);
 const offlineReady = () => pairSupported(settings.langA, settings.langB) && !currentRequired().some(needsLoad);
@@ -407,18 +426,22 @@ async function ensureModels({ download = false } = {}) {
     for (const key of [...loaded]) if (!requiredKeys.has(key)) await unloadModel(key);
     let targets = pendingModels.filter((m) => cachedKeys.get(m.key) === true);
     if (usesSwap()) {
-      // 入れ替え方式: 既に載っている翻訳モデルと重なりが多い方向(同じなら A→B)を選び、その方向の翻訳モデルだけを揃える
-      const routes = [routeFor(settings.langA, settings.langB), routeFor(settings.langB, settings.langA)]
-        .filter(Boolean)
-        .map((r) => new Set(r.map((s) => s.key)));
-      const overlap = (r) => [...loaded].filter((k) => r.has(k)).length;
-      const route = routes.reduce((best, r) => (overlap(r) > overlap(best) ? r : best));
-      for (const key of [...loaded]) if (key.startsWith('mt:') && !route.has(key)) await unloadModel(key);
-      targets = targets.filter((m) => m.kind === 'whisper' || route.has(m.key));
+      // 入れ替え方式(iPhone等): 起動時は音声認識(Whisper)だけをメモリに載せる。
+      // 翻訳モデルは保存されていれば翻訳時(translateOffline)に1つずつ読み込むため、
+      // 起動時に翻訳モデルを読み込むとメモリ上限を超えて強制終了の原因になる。
+      for (const key of [...loaded]) {
+        if (key.startsWith('mt:')) await unloadModel(key);
+      }
+      targets = targets.filter((m) => m.kind === 'whisper');
     }
     updateReadiness();
-    // 1つずつ、大きいモデルから読み込む(同時や小さい順だと、読み込み中の一時メモリを含むピークが大きくなりスマホでは落ちる)
-    targets.sort(bySizeDesc);
+    // 音声認識(Whisper)を最優先で読み込み、その後必要なら翻訳モデルを大きい順に読み込む
+    const whisperFirst = (a, b) => {
+      if (a.kind === 'whisper' && b.kind !== 'whisper') return -1;
+      if (b.kind === 'whisper' && a.kind !== 'whisper') return 1;
+      return b.sizeMB - a.sizeMB;
+    };
+    targets.sort(whisperFirst);
     for (const m of targets) {
       try {
         await loadModel(m);
@@ -446,7 +469,9 @@ function offlineProblem() {
 async function refreshCacheStatus(models) {
   if (!models.length) return {};
   const { result } = await call({ type: 'checkCached', device: settings.device, models: models.map(({ key, kind, id }) => ({ key, kind, id })) });
-  for (const m of models) cachedKeys.set(m.key, result[m.key].cached);
+  for (const m of models) {
+    if (result[m.key]) setCachedKey(m.key, result[m.key].cached);
+  }
   return result;
 }
 
@@ -474,6 +499,55 @@ async function ensureRoute(route) {
   for (const key of toUnload) await unloadModel(key);
   for (const m of toLoad) await loadModel(m);
   log.info('翻訳モデルの入れ替え完了', { ms: Math.round(performance.now() - t0) });
+}
+
+// オフライン翻訳の実行。iPhone等では1ステップずつモデルを入れ替えてメモリ上限超過を防ぐ。
+async function translateOffline(srcLang, dstLang, text) {
+  const route = routeFor(srcLang, dstLang);
+  if (!route) {
+    throw new Error(`${LANGUAGES[srcLang].name} → ${LANGUAGES[dstLang].name} はオフラインでは翻訳できません`);
+  }
+  const postName = LANGUAGES[dstLang].post;
+  const t0 = performance.now();
+  let curText = text;
+  const steps = [];
+
+  if (usesSwap()) {
+    // iPhone等メモリ制限環境: 中継翻訳(英語経由)でも同時に複数の翻訳モデルをメモリに載せず、
+    // 1ステップずつ順に読み込み・翻訳・解放してメモリ上限超過による強制終了を完全に防ぐ
+    for (let i = 0; i < route.length; i++) {
+      const step = route[i];
+      const isLast = i === route.length - 1;
+      // このステップ以外の翻訳モデルはすべて解放してメモリを空ける
+      for (const key of [...loaded]) {
+        if (key.startsWith('mt:') && key !== step.key) await unloadModel(key);
+      }
+      setStatus('loading', `${step.dir} 翻訳モデルを読込中`);
+      await loadModel(step);
+      setStatus('translating');
+      const res = await call({
+        type: 'translate',
+        route: [{ key: step.key }],
+        text: curText,
+        post: isLast ? postName : null,
+      });
+      curText = res.text;
+      steps.push(curText);
+    }
+  } else {
+    // PC等大容量メモリ環境: ルート上のモデルをすべて載せて高速に一括翻訳
+    await ensureRoute(route);
+    setStatus('translating');
+    const res = await call({
+      type: 'translate',
+      route: route.map((r) => ({ key: r.key })),
+      text,
+      post: postName,
+    });
+    curText = res.text;
+    steps.push(...(res.steps || [curText]));
+  }
+  return { text: curText, steps, ms: Math.round(performance.now() - t0) };
 }
 
 // ------------------------------------------------------------
@@ -583,9 +657,7 @@ async function handleJob(job) {
         toast(msg, 5000);
         return;
       }
-      await ensureRoute(route);
-      setStatus('translating');
-      const t = await call({ type: 'translate', route: route.map((r) => ({ key: r.key })), text: srcText, post: LANGUAGES[dstLang].post });
+      const t = await translateOffline(srcLang, dstLang, srcText);
       dstText = t.text;
       translateMs = t.ms;
       log.info('翻訳', { from: srcLang, to: dstLang, ms: t.ms, steps: t.steps });
@@ -956,12 +1028,7 @@ function bubbleEl(entry) {
         const r = await online.translateText(newText, entry.srcLang, entry.dstLang);
         dstText = (r.translation ?? '').trim();
       } else {
-        const route = routeFor(entry.srcLang, entry.dstLang);
-        if (!route) {
-          throw new Error(`${LANGUAGES[entry.srcLang].name} → ${LANGUAGES[entry.dstLang].name} はオフラインでは翻訳できません`);
-        }
-        await ensureRoute(route);
-        const t = await call({ type: 'translate', route: route.map((r) => ({ key: r.key })), text: newText, post: LANGUAGES[entry.dstLang].post });
+        const t = await translateOffline(entry.srcLang, entry.dstLang, newText);
         dstText = t.text;
       }
       entry.srcText = newText;
@@ -1363,7 +1430,7 @@ async function removeModel(m) {
   if (!confirm(`${m.label} を端末から削除します。よろしいですか？`)) return;
   if (loaded.has(m.key)) unloadModel(m.key);
   const n = await deleteModelCache(m.id);
-  cachedKeys.set(m.key, false);
+  setCachedKey(m.key, false);
   log.info('モデル削除', { key: m.key, files: n });
   toast(`${m.label} を削除しました`);
   if (currentRequired().some((r) => r.key === m.key)) await stopListening();
@@ -1547,7 +1614,15 @@ async function boot() {
   startRemoteLog({ isStandalone: isStandalone(), onEntry: log.onEntry });
   // 前回の読み込み中に強制終了していたら、同じ強制終了を繰り返さないよう自動読み込みを止める
   loadBlockedBy = takeLoadingMark();
-  if (loadBlockedBy) log.error('前回、言語データの読み込み中にアプリが強制終了しました（メモリ不足の可能性）', loadBlockedBy);
+  if (loadBlockedBy) {
+    log.error('前回、言語データの読み込み中にアプリが強制終了しました（メモリ不足の可能性）', loadBlockedBy);
+    // 前回、翻訳モデルが載った状態で音声認識を読み込んで落ちていた場合、
+    // 今は翻訳モデルを外して音声認識単体で読み込むため自動復帰を試みる
+    if (loadBlockedBy.key?.startsWith('whisper:') && loadBlockedBy.alreadyLoaded?.some((k) => k.startsWith('mt:'))) {
+      log.info('翻訳モデル解放によるメモリ軽量化構成のため、強制終了ガードを自動解除して音声認識の読み込みを再試行します');
+      loadBlockedBy = null;
+    }
+  }
   fillLangSelect(el.langA, settings.langA);
   fillLangSelect(el.langB, settings.langB);
   el.whisperSize.value = settings.whisperSize;
@@ -1563,6 +1638,18 @@ async function boot() {
   renderMode();
   renderVoices();
   await renderRecent();
+
+  // 初回起動時やLocalStorage未同期時、Cache APIに既に保存されているモデルがあれば同期する
+  if (cachedKeys.size === 0 && 'caches' in window) {
+    try {
+      const known = allKnownModels();
+      for (const m of known) {
+        const has = await hasModelFiles(m.id);
+        if (has) setCachedKey(m.key, true);
+      }
+    } catch {}
+  }
+
   log.info('起動', { ua: navigator.userAgent, online: navigator.onLine, mode: settings.mode, pair: [settings.langA, settings.langB], whisper: settings.whisperSize, standalone: isStandalone(), appShellReady });
   updateReadiness();
 
