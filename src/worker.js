@@ -20,6 +20,8 @@ env.backends.onnx.wasm.wasmPaths = {
   mjs: `${BASE}ort/ort-wasm-simd-threaded.mjs`,
   wasm: `${BASE}ort/ort-wasm-simd-threaded.wasm`,
 };
+// モバイル端末での過剰なスレッド生成による発熱・CPU過負荷を防ぐ(最大4スレッド)
+env.backends.onnx.wasm.numThreads = Math.min(self.navigator?.hardwareConcurrency || 2, 4);
 
 // onnxruntime-web の拡張グラフ最適化(TransposeDQForMatMulNBits)が q8 モデルで失敗するため basic に抑える
 const SESSION_OPTIONS = { graphOptimizationLevel: 'basic' };

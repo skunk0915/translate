@@ -155,6 +155,16 @@
             </label>
             <p class="note" id="whisperNote"></p>
             <label class="field">
+              <span class="field__label">話し終わりの判定（間）</span>
+              <select id="vadSilence" class="select">
+                <option value="1000">短め（1.0秒・テンポ重視）</option>
+                <option value="1400">標準（1.4秒・おすすめ）</option>
+                <option value="1800">長め（1.8秒・途切れ防止）</option>
+                <option value="2200">かなり長め（2.2秒）</option>
+              </select>
+            </label>
+            <p class="note note--info">一瞬の間で文が途切れて翻訳されてしまうときは「長め」にしてください。</p>
+            <label class="field">
               <span class="field__label">処理エンジン</span>
               <select id="device" class="select">
                 <option value="wasm">CPU（WebAssembly・安定）</option>

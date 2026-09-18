@@ -32,32 +32,45 @@ const requestMic = () =>
     audio: { channelCount: 1, echoCancellation: true, autoGainControl: true, noiseSuppression: true },
   });
 
-export async function createVad({ onSpeechStart, onSpeechEnd, onMisfire }) {
+export async function createVad({ onSpeechStart, onSpeechEnd, onMisfire, redemptionMs = 1400 }) {
   const assets = await prepareOrtAssets();
-  const vad = await MicVAD.new({
+  let vad;
+  vad = await MicVAD.new({
     model: 'v5',
     baseAssetPath: `${BASE}vad/`,
     onnxWASMBasePath: ORT_DIR,
     ortConfig: (ort) => {
       ort.env.wasm.wasmPaths = { mjs: assets.mjsUrl, wasm: assets.wasmUrl };
       ort.env.wasm.wasmBinary = assets.wasmBinary;
+      // Silero VAD は極小モデル(2MB弱)。マルチスレッドにするとスレッド同期オーバーヘッドで
+      // CPU全コアが高負荷になりスマホが異常発熱するため、必ず 1 スレッドで動作させる
+      ort.env.wasm.numThreads = 1;
     },
     positiveSpeechThreshold: 0.55,
     negativeSpeechThreshold: 0.35,
     preSpeechPadMs: 400,
-    redemptionMs: 900, // これだけ無音が続いたら発話終了
+    redemptionMs, // これだけ無音が続いたら発話終了(デフォルト1.4秒)
     minSpeechMs: 300, // これより短い音は無視
     submitUserSpeechOnPause: false,
     getStream: requestMic,
-    // vad-web の既定は一時停止でマイクを止め(track.stop)、再開時に getUserMedia し直す。
-    // iPhone ではそのたびに許可ダイアログが出るため、止めずにミュートして同じマイクを使い続ける。
+    // 読み上げ中の一時停止ではマイクを止めずミュートして再利用(高速復帰)
     pauseStream: async (stream) => {
       stream.getAudioTracks().forEach((t) => (t.enabled = false));
     },
     resumeStream: async (stream) => {
+      if (vad?._audioContext?.state === 'suspended') {
+        await vad._audioContext.resume().catch(() => {});
+      }
       const tracks = stream.getAudioTracks();
-      // 通話の割り込み等で OS 側がマイクを終了させた場合だけ取り直す
-      if (!tracks.length || tracks.some((t) => t.readyState === 'ended')) return requestMic();
+      // 通話の割り込みやバックグラウンド移行等で OS 側がマイクを終了・ミュートさせた場合は取り直す
+      if (!tracks.length || tracks.some((t) => t.readyState === 'ended' || t.muted)) {
+        tracks.forEach((t) => {
+          try {
+            t.stop();
+          } catch (_) {}
+        });
+        return requestMic();
+      }
       tracks.forEach((t) => (t.enabled = true));
       return stream;
     },
@@ -65,5 +78,18 @@ export async function createVad({ onSpeechStart, onSpeechEnd, onMisfire }) {
     onSpeechEnd,
     onVADMisfire: onMisfire,
   });
+
+  vad.stopAllTracks = () => {
+    try {
+      vad._stream?.getAudioTracks().forEach((t) => t.stop());
+    } catch (_) {}
+  };
+
+  vad.ensureActive = async () => {
+    if (vad._audioContext?.state === 'suspended') {
+      await vad._audioContext.resume().catch(() => {});
+    }
+  };
+
   return vad;
 }

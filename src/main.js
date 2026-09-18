@@ -23,6 +23,7 @@ const DEFAULTS = {
   rate: 1,
   voices: {}, // lang -> voiceURI
   typedLang: 'A',
+  vadSilenceMs: 1400, // 話し終わりの判定(間) ms
 };
 const settings = { ...DEFAULTS };
 
@@ -33,6 +34,7 @@ async function loadSettings() {
   if (!LANGUAGES[settings.langB]) settings.langB = DEFAULTS.langB;
   if (!['tiny', 'base', 'small'].includes(settings.whisperSize)) settings.whisperSize = DEFAULTS.whisperSize;
   if (!['auto', 'online', 'offline'].includes(settings.mode)) settings.mode = DEFAULTS.mode;
+  if (!settings.vadSilenceMs || isNaN(settings.vadSilenceMs)) settings.vadSilenceMs = DEFAULTS.vadSilenceMs;
 }
 
 // オンラインモードを使うか(自動のときは通信可否で決める)
@@ -89,6 +91,7 @@ const el = {
   storageInfo: $('storageInfo'),
   whisperSize: $('whisperSize'),
   whisperNote: $('whisperNote'),
+  vadSilence: $('vadSilence'),
   device: $('device'),
   autoListenToggle: $('autoListenToggle'),
   voiceA: $('voiceA'),
@@ -253,6 +256,7 @@ function loadModel(entry) {
   renderModelList();
   const type = entry.kind === 'whisper' ? 'loadWhisper' : 'loadMT';
   log.info('モデル読込開始', { key: entry.key, id: entry.id, device: settings.device });
+  if (!useOnline() && !listening && !busy) setStatus('loading', `${entry.label} を読込中…`);
   markLoading(entry.key);
   worker.postMessage({ type, key: entry.key, id: entry.id, device: settings.device });
   return promise;
@@ -631,6 +635,8 @@ async function speakEntry(entry) {
   }
 }
 
+let wasListeningBeforeHidden = false;
+
 // ---- 聞き取り ----
 async function startListening() {
   if (listening) return true;
@@ -644,6 +650,7 @@ async function startListening() {
     if (!vad) {
       setStatus('loading', 'マイク準備中');
       vad = await createVad({
+        redemptionMs: settings.vadSilenceMs,
         onSpeechStart: () => {
           if (listening && !busy) setStatus('hearing');
         },
@@ -658,6 +665,10 @@ async function startListening() {
           if (listening && !busy) setStatus('listening');
         },
       });
+    } else {
+      // 既存インスタンスがある場合、設定された沈黙時間を同期し、AudioContext が suspended なら再開
+      vad.setOptions?.({ redemptionMs: settings.vadSilenceMs });
+      await vad.ensureActive?.();
     }
     await vad.start();
     listening = true;
@@ -671,6 +682,12 @@ async function startListening() {
     return true;
   } catch (e) {
     log.error('マイク開始に失敗', e);
+    // 失敗したvadは破棄して次回クリーンに再試行できるようにする
+    if (vad) {
+      vad.stopAllTracks?.();
+      await vad.destroy?.().catch(() => {});
+      vad = null;
+    }
     const msg =
       e.name === 'NotAllowedError'
         ? 'マイクの使用が許可されていません。ブラウザの設定でマイクを許可するか、下のボタンを押して許可してください。'
@@ -684,14 +701,25 @@ async function startListening() {
   }
 }
 
-async function stopListening() {
+async function stopListening({ keepIntent = false } = {}) {
   if (!listening) return;
   listening = false;
-  await vad?.pause();
+  if (!keepIntent) wasListeningBeforeHidden = false;
+  try {
+    if (vad) {
+      vad.stopAllTracks?.();
+      await vad.pause().catch(() => {});
+      // 手動で明示的に停止した場合は、ゾンビ化マイクを再利用せず次回確実にクリーン初期化できるよう破棄する
+      if (!keepIntent) {
+        await vad.destroy?.().catch(() => {});
+        vad = null;
+      }
+    }
+  } catch (_) {}
   el.micButton.dataset.active = 'false';
   el.micButton.setAttribute('aria-pressed', 'false');
   el.micLabel.textContent = '自動聞き取り 停止中';
-  setStatus('idle');
+  if (!busy) setStatus('idle');
   log.info('聞き取り停止');
   releaseWakeLock();
 }
@@ -710,14 +738,39 @@ function releaseWakeLock() {
   wakeLock?.release();
   wakeLock = null;
 }
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && listening) acquireWakeLock();
+
+// バックグラウンド移行(別アプリ表示、ホーム画面へ戻る、タブ切り替え等)の検知と省電力・発熱防止
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'hidden') {
+    if (listening) {
+      wasListeningBeforeHidden = true;
+      log.info('別アプリ表示/バックグラウンド移行: マイク待機');
+      await stopListening({ keepIntent: true });
+    }
+  } else if (document.visibilityState === 'visible') {
+    acquireWakeLock();
+    if (wasListeningBeforeHidden) {
+      wasListeningBeforeHidden = false;
+      log.info('アプリ復帰(フォアグラウンド): 聞き取り自動再開');
+      setTimeout(() => {
+        if (!listening && settings.autoListen) startListening();
+      }, 300);
+    }
+  }
+});
+
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted && settings.autoListen && !listening) {
+    log.info('ページ復元(pageshow): 自動聞き取りを再開');
+    setTimeout(() => startListening(), 300);
+  }
 });
 
 // ------------------------------------------------------------
 // 会話ビュー描画
 // ------------------------------------------------------------
 const timeFmt = (ts) => new Date(ts).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+
 
 function bubbleEl(entry) {
   const side = entry.srcLang === settings.langA ? 'a' : 'b';
@@ -728,17 +781,122 @@ function bubbleEl(entry) {
   art.dataset.id = entry.id;
   art.innerHTML = `
     <div class="bubble__meta"><span>${src.flag} ${src.name}</span><span class="bubble__arrow">→</span><span>${dst.flag} ${dst.name}</span><span class="bubble__mode">${entry.mode === 'online' ? 'オンライン' : 'オフライン'}</span><time>${timeFmt(entry.ts)}</time></div>
-    <p class="bubble__src"></p>
+    <div class="bubble__src-row">
+      <p class="bubble__src" tabindex="0" role="button" aria-label="タップして原文を編集" title="タップして編集"></p>
+    </div>
+    <div class="bubble__editor" hidden>
+      <textarea class="bubble__edit-input" rows="2" aria-label="原文を編集"></textarea>
+      <div class="bubble__edit-actions">
+        <button class="btn btn--small" type="button" data-action="retranslate">再翻訳</button>
+        <button class="btn btn--ghost btn--small" type="button" data-action="cancel">キャンセル</button>
+      </div>
+    </div>
     <p class="bubble__dst"></p>
     <div class="bubble__actions">
+      <button class="btn btn--ghost btn--small" type="button" data-action="edit">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+        編集
+      </button>
       <button class="btn btn--ghost btn--small" type="button" data-action="speak">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
         読み上げ
       </button>
     </div>`;
-  art.querySelector('.bubble__src').textContent = entry.srcText;
-  art.querySelector('.bubble__dst').textContent = entry.dstText;
-  art.querySelector('[data-action="speak"]').addEventListener('click', () => speakEntry(entry));
+
+  const srcRow = art.querySelector('.bubble__src-row');
+  const srcEl = art.querySelector('.bubble__src');
+  const dstEl = art.querySelector('.bubble__dst');
+  const editor = art.querySelector('.bubble__editor');
+  const editInput = art.querySelector('.bubble__edit-input');
+  const retranslateBtn = art.querySelector('[data-action="retranslate"]');
+  const cancelBtn = art.querySelector('[data-action="cancel"]');
+  const editBtn = art.querySelector('[data-action="edit"]');
+  const speakBtn = art.querySelector('[data-action="speak"]');
+
+  srcEl.textContent = entry.srcText;
+  dstEl.textContent = entry.dstText;
+
+  const openEditor = (from = 'tap') => {
+    srcRow.hidden = true;
+    editor.hidden = false;
+    editInput.value = entry.srcText;
+    editInput.focus();
+    const len = editInput.value.length;
+    editInput.setSelectionRange(len, len);
+    setTimeout(() => {
+      editInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 50);
+  };
+
+  const closeEditor = () => {
+    editor.hidden = true;
+    srcRow.hidden = false;
+  };
+
+  srcEl.addEventListener('click', () => openEditor('tap'));
+  srcEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openEditor('keyboard');
+    }
+  });
+  editBtn.addEventListener('click', () => openEditor('button'));
+  cancelBtn.addEventListener('click', closeEditor);
+
+  editInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      retranslateBtn.click();
+    } else if (e.key === 'Escape') {
+      closeEditor();
+    }
+  });
+
+  retranslateBtn.addEventListener('click', async () => {
+    const newText = editInput.value.trim();
+    if (!newText) {
+      toast('テキストを入力してください');
+      return;
+    }
+    retranslateBtn.disabled = true;
+    cancelBtn.disabled = true;
+    const prevDst = entry.dstText;
+    dstEl.textContent = '再翻訳中…';
+    try {
+      let dstText;
+      if (useOnline()) {
+        const r = await online.translateText(newText, entry.srcLang, entry.dstLang);
+        dstText = (r.translation ?? '').trim();
+      } else {
+        const route = routeFor(entry.srcLang, entry.dstLang);
+        if (!route) {
+          throw new Error(`${LANGUAGES[entry.srcLang].name} → ${LANGUAGES[entry.dstLang].name} はオフラインでは翻訳できません`);
+        }
+        await ensureRoute(route);
+        const t = await call({ type: 'translate', route: route.map((r) => ({ key: r.key })), text: newText, post: LANGUAGES[entry.dstLang].post });
+        dstText = t.text;
+      }
+      entry.srcText = newText;
+      entry.dstText = dstText;
+      entry.ts = Date.now();
+      await history.update(entry);
+      srcEl.textContent = entry.srcText;
+      dstEl.textContent = entry.dstText;
+      closeEditor();
+      toast('再翻訳しました');
+      log.info('会話文を編集・再翻訳', { id: entry.id, len: newText.length });
+      if (settings.autoSpeak) await speakEntry(entry);
+    } catch (e) {
+      log.error('再翻訳に失敗', e);
+      dstEl.textContent = prevDst;
+      toast(`再翻訳に失敗しました: ${e.message}`);
+    } finally {
+      retranslateBtn.disabled = false;
+      cancelBtn.disabled = false;
+    }
+  });
+
+  speakBtn.addEventListener('click', () => speakEntry(entry));
   return art;
 }
 
@@ -887,6 +1045,13 @@ el.whisperSize.addEventListener('change', async () => {
   renderModelList();
   await ensureModels();
   if (isReady() && settings.autoListen) startListening();
+});
+
+el.vadSilence.addEventListener('change', async () => {
+  settings.vadSilenceMs = Number(el.vadSilence.value);
+  await saveSettings();
+  vad?.setOptions?.({ redemptionMs: settings.vadSilenceMs });
+  log.info('話し終わり判定時間変更', { vadSilenceMs: settings.vadSilenceMs });
 });
 
 el.device.addEventListener('change', async () => {
@@ -1304,23 +1469,41 @@ async function boot() {
   el.autoSpeakToggle.checked = settings.autoSpeak;
   el.rate.value = settings.rate;
   el.rateValue.textContent = Number(settings.rate).toFixed(1);
+  el.vadSilence.value = String(settings.vadSilenceMs);
   el.versionText.textContent = `Transrate v${__APP_VERSION__}`;
   renderPair();
   renderMode();
   renderVoices();
   await renderRecent();
   log.info('起動', { ua: navigator.userAgent, online: navigator.onLine, mode: settings.mode, pair: [settings.langA, settings.langB], whisper: settings.whisperSize, standalone: isStandalone(), appShellReady });
-  setStatus('loading');
-  // オフライン用モデルは保存済みなら常に読み込んでおく(自動モードで通信が切れても即座に使えるように)
-  const offlineOk = await ensureModels();
+  updateReadiness();
+
+  if (useOnline()) {
+    // オンラインモード(または自動モードで通信可能)の場合は、重い端末内モデルのロードを待たずに即座に聞き取りを開始可能にする
+    if (settings.autoListen) startListening();
+    // オフライン用モデルはバックグラウンドで準備(通信切断に備える)
+    ensureModels()
+      .then((ok) => {
+        updateReadiness();
+        log.info('オフラインモデルの事前読込完了', { ok });
+      })
+      .catch((e) => {
+        log.warn('オフラインモデルの事前読込に失敗', e);
+      });
+  } else {
+    // オフライン翻訳時はモデルが必須のため読み込みを待つ
+    setStatus('loading', 'モデル読込中');
+    const offlineOk = await ensureModels();
+    updateReadiness();
+    if (isReady() && settings.autoListen) await startListening();
+    else if (!offlineOk) showView('settings');
+  }
+
   // 上限が極端に小さい場合はプライベートブラウズやアプリ内ブラウザ(閉じると保存データが消える環境)の可能性がある
   log.info('保存容量', { ...(await storageEstimate()), persisted: await navigator.storage?.persisted?.() });
   if (currentRequired().some((m) => cachedKeys.get(m.key))) {
     log.info('保存領域の永続化', { persisted: await requestPersistentStorage() });
   }
-  updateReadiness();
-  if (isReady() && settings.autoListen) await startListening();
-  else if (!useOnline() && !offlineOk) showView('settings');
 }
 
 boot().catch((e) => {

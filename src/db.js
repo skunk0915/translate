@@ -68,6 +68,7 @@ export const history = {
         }),
     ),
   remove: (id) => tx('history', 'readwrite', (s) => s.delete(id)),
+  update: (entry) => tx('history', 'readwrite', (s) => s.put(entry)),
   clear: () => tx('history', 'readwrite', (s) => s.clear()),
 };
 

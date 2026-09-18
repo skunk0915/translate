@@ -380,11 +380,55 @@ button {
   &__arrow {
     opacity: 0.6;
   }
+  &__src-row {
+    margin: 0;
+  }
   &__src {
     margin: 0;
     font-size: 14px;
     color: var(--fg-muted);
     word-break: break-word;
+    border-radius: var(--radius-sm);
+    padding: 2px 4px;
+    margin: -2px -4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    outline: none;
+
+    &:hover,
+    &:focus-visible {
+      background: var(--bg-sunken);
+      color: var(--fg);
+    }
+  }
+  &__editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 4px 0;
+  }
+  &__edit-input {
+    width: 100%;
+    min-height: 68px;
+    padding: 8px 10px;
+    font-size: 14px;
+    line-height: 1.45;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--accent);
+    background: var(--bg);
+    color: var(--fg);
+    resize: vertical;
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+
+    &:focus {
+      border-color: var(--accent);
+    }
+  }
+  &__edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
   }
   &__dst {
     margin: 4px 0 0;
@@ -396,7 +440,8 @@ button {
   &__actions {
     display: flex;
     justify-content: flex-end;
-    margin-top: 4px;
+    gap: 6px;
+    margin-top: 6px;
   }
 }
 @keyframes rise {
