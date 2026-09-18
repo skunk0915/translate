@@ -397,13 +397,31 @@ button {
     padding: 2px 4px;
     margin: -2px -4px;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: pan-y;
+    transition: background 0.15s, color 0.15s, transform 0.15s, opacity 0.15s;
     outline: none;
 
-    &:hover,
+    @media (hover: hover) {
+      &:hover {
+        background: var(--bg-sunken);
+        color: var(--fg);
+      }
+    }
+
     &:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+      color: var(--fg);
+    }
+
+    &--pressing {
       background: var(--bg-sunken);
       color: var(--fg);
+      transform: scale(0.985);
+      opacity: 0.85;
     }
   }
   &__editor {
@@ -708,6 +726,13 @@ button {
     border-radius: var(--radius);
     padding: 12px 14px;
     box-shadow: var(--shadow);
+    transition: transform 0.15s, opacity 0.15s, border-color 0.15s;
+
+    &--pressing {
+      border-color: var(--accent);
+      transform: scale(0.99);
+      opacity: 0.9;
+    }
   }
   &__meta {
     display: flex;
@@ -716,24 +741,113 @@ button {
     flex-wrap: wrap;
     font-size: 11px;
     color: var(--fg-muted);
-    margin-bottom: 4px;
+    margin-bottom: 6px;
+    user-select: none;
+  }
+  &__src-row {
+    margin: 0;
   }
   &__src {
     margin: 0;
     font-size: 14px;
     color: var(--fg-muted);
     word-break: break-word;
+    border-radius: var(--radius-sm);
+    padding: 2px 4px;
+    margin: -2px -4px;
+    cursor: pointer;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: pan-y;
+    transition: background 0.15s, color 0.15s, transform 0.15s, opacity 0.15s;
+    outline: none;
+
+    @media (hover: hover) {
+      &:hover {
+        background: var(--bg-sunken);
+        color: var(--fg);
+      }
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+      color: var(--fg);
+    }
+
+    &--pressing {
+      background: var(--bg-sunken);
+      color: var(--fg);
+      transform: scale(0.985);
+      opacity: 0.85;
+    }
+  }
+  &__editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 6px 0;
+  }
+  &__edit-input {
+    width: 100%;
+    min-height: 68px;
+    padding: 8px 10px;
+    font-size: 14px;
+    line-height: 1.45;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--accent);
+    background: var(--bg);
+    color: var(--fg);
+    resize: vertical;
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+
+    &:focus {
+      border-color: var(--accent);
+    }
+  }
+  &__edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
   }
   &__dst {
-    margin: 4px 0 0;
+    margin: 2px -4px 0;
     font-size: 17px;
     font-weight: 600;
     word-break: break-word;
+    border-radius: var(--radius-sm);
+    padding: 2px 4px;
+    cursor: pointer;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: pan-y;
+    transition: background 0.15s, transform 0.15s, opacity 0.15s;
+    outline: none;
+
+    @media (hover: hover) {
+      &:hover {
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+      }
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    &--pressing {
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      transform: scale(0.985);
+      opacity: 0.85;
+    }
   }
   &__actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 6px;
     margin-top: 8px;
   }
 }

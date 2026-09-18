@@ -843,7 +843,13 @@ window.addEventListener('pageshow', (e) => {
 // ------------------------------------------------------------
 const timeFmt = (ts) => new Date(ts).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 
-function bindLongPress(element, onLongPress, ms = 450) {
+function bindLongPress(element, onLongPress, options = {}) {
+  const ms = typeof options === 'number' ? options : (options.ms ?? 450);
+  const pressingClass = typeof options === 'object' && options.pressingClass !== undefined ? options.pressingClass : 'bubble__dst--pressing';
+  const ignoreSelector = typeof options === 'object' ? options.ignoreSelector : null;
+  const onStart = typeof options === 'object' ? options.onStart : null;
+  const onEnd = typeof options === 'object' ? options.onEnd : null;
+
   let timer = null;
   let startX = 0;
   let startY = 0;
@@ -854,21 +860,25 @@ function bindLongPress(element, onLongPress, ms = 450) {
       clearTimeout(timer);
       timer = null;
     }
-    element.classList.remove('bubble__dst--pressing');
+    if (pressingClass) element.classList.remove(pressingClass);
+    if (onEnd) onEnd();
   };
 
   const onPointerDown = (e) => {
     if (e.button !== undefined && e.button !== 0) return;
+    if (ignoreSelector && e.target.closest(ignoreSelector)) return;
     didTrigger = false;
     startX = e.clientX;
     startY = e.clientY;
-    element.classList.add('bubble__dst--pressing');
+    if (pressingClass) element.classList.add(pressingClass);
+    if (onStart) onStart(e);
 
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
       didTrigger = true;
-      element.classList.remove('bubble__dst--pressing');
+      if (pressingClass) element.classList.remove(pressingClass);
+      if (onEnd) onEnd();
       try {
         window.getSelection()?.removeAllRanges();
       } catch {}
@@ -877,7 +887,7 @@ function bindLongPress(element, onLongPress, ms = 450) {
           navigator.vibrate(40);
         } catch {}
       }
-      onLongPress();
+      onLongPress(e);
     }, ms);
   };
 
@@ -899,8 +909,10 @@ function bindLongPress(element, onLongPress, ms = 450) {
 
   const onContextMenu = (e) => {
     if (didTrigger || e.pointerType === 'touch') {
-      e.preventDefault();
-      didTrigger = false;
+      if (didTrigger || (ignoreSelector && !e.target.closest(ignoreSelector))) {
+        e.preventDefault();
+        didTrigger = false;
+      }
     }
   };
 
@@ -913,9 +925,10 @@ function bindLongPress(element, onLongPress, ms = 450) {
   };
 
   const onKeyDown = (e) => {
+    if (ignoreSelector && e.target.closest(ignoreSelector)) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      onLongPress();
+      onLongPress(e);
     }
   };
 
@@ -928,6 +941,7 @@ function bindLongPress(element, onLongPress, ms = 450) {
   element.addEventListener('keydown', onKeyDown);
 }
 
+
 function bubbleEl(entry) {
   const side = entry.srcLang === settings.langA ? 'a' : 'b';
   const src = LANGUAGES[entry.srcLang];
@@ -938,7 +952,7 @@ function bubbleEl(entry) {
   art.innerHTML = `
     <div class="bubble__meta"><span>${src.flag} ${src.name}</span><span class="bubble__arrow">→</span><span>${dst.flag} ${dst.name}</span><span class="bubble__mode">${entry.mode === 'online' ? 'オンライン' : 'オフライン'}</span><time>${timeFmt(entry.ts)}</time></div>
     <div class="bubble__src-row">
-      <p class="bubble__src" tabindex="0" role="button" aria-label="タップして原文を編集" title="タップして編集"></p>
+      <p class="bubble__src" tabindex="0" role="button" aria-label="タップまたは長押しで原文を編集" title="タップまたは長押しで編集"></p>
     </div>
     <div class="bubble__editor" hidden>
       <textarea class="bubble__edit-input" rows="2" aria-label="原文を編集"></textarea>
@@ -982,8 +996,8 @@ function bubbleEl(entry) {
     setTimeout(() => {
       editInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, 50);
-    if (from === 'longpress') {
-      log.info('翻訳の長押しで原文編集を開く', { id: entry.id });
+    if (from && from.startsWith('longpress')) {
+      log.info('翻訳の長押しで原文編集を開く', { id: entry.id, from });
     }
   };
 
@@ -1001,7 +1015,8 @@ function bubbleEl(entry) {
   });
   editBtn.addEventListener('click', () => openEditor('button'));
   cancelBtn.addEventListener('click', closeEditor);
-  bindLongPress(dstEl, () => openEditor('longpress'));
+  bindLongPress(dstEl, () => openEditor('longpress-dst'), { pressingClass: 'bubble__dst--pressing' });
+  bindLongPress(srcEl, () => openEditor('longpress-src'), { pressingClass: 'bubble__src--pressing' });
 
   editInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -1037,6 +1052,18 @@ function bubbleEl(entry) {
       await history.update(entry);
       srcEl.textContent = entry.srcText;
       dstEl.textContent = entry.dstText;
+      const bTime = art.querySelector('.bubble__meta time');
+      if (bTime) bTime.textContent = timeFmt(entry.ts);
+
+      // 履歴一覧側にも同じIDのアイテムがあれば同期
+      const historyLi = el.historyList.querySelector(`.history__item[data-id="${entry.id}"]`);
+      if (historyLi) {
+        historyLi.querySelector('.history__src').textContent = entry.srcText;
+        historyLi.querySelector('.history__dst').textContent = entry.dstText;
+        const hTime = historyLi.querySelector('.history__meta time');
+        if (hTime) hTime.textContent = dateFmt(entry.ts);
+      }
+
       closeEditor();
       toast('再翻訳しました');
       log.info('会話文を編集・再翻訳', { id: entry.id, len: newText.length });
@@ -1097,24 +1124,175 @@ async function renderHistory() {
     const dst = LANGUAGES[entry.dstLang] ?? { flag: '', name: entry.dstLang };
     const li = document.createElement('li');
     li.className = 'history__item';
+    li.dataset.id = entry.id;
     li.innerHTML = `
       <div class="history__meta"><time>${dateFmt(entry.ts)}</time><span>${src.flag} ${src.name} → ${dst.flag} ${dst.name}</span></div>
-      <p class="history__src"></p>
-      <p class="history__dst"></p>
+      <div class="history__src-row">
+        <p class="history__src" tabindex="0" role="button" aria-label="タップまたは長押しで原文を編集" title="タップまたは長押しで編集"></p>
+      </div>
+      <div class="history__editor" hidden>
+        <textarea class="history__edit-input" rows="2" aria-label="原文を編集"></textarea>
+        <div class="history__edit-actions">
+          <button class="btn btn--small" type="button" data-action="retranslate">再翻訳</button>
+          <button class="btn btn--ghost btn--small" type="button" data-action="cancel">キャンセル</button>
+        </div>
+      </div>
+      <p class="history__dst" tabindex="0" role="button" aria-label="長押しで原文を再編集" title="長押しで原文を再編集"></p>
       <div class="history__actions">
-        <button class="btn btn--ghost btn--small" type="button" data-action="speak">読み上げ</button>
-        <button class="btn btn--ghost btn--small btn--danger" type="button" data-action="delete">削除</button>
+        <button class="btn btn--ghost btn--small" type="button" data-action="edit">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+          編集
+        </button>
+        <button class="btn btn--ghost btn--small" type="button" data-action="speak">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
+          読み上げ
+        </button>
+        <button class="btn btn--ghost btn--small btn--danger" type="button" data-action="delete">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          削除
+        </button>
       </div>`;
-    li.querySelector('.history__src').textContent = entry.srcText;
-    li.querySelector('.history__dst').textContent = entry.dstText;
-    li.querySelector('[data-action="speak"]').addEventListener('click', () => speakEntry(entry));
-    li.querySelector('[data-action="delete"]').addEventListener('click', async () => {
+
+    const srcRow = li.querySelector('.history__src-row');
+    const srcEl = li.querySelector('.history__src');
+    const dstEl = li.querySelector('.history__dst');
+    const timeEl = li.querySelector('.history__meta time');
+    const editor = li.querySelector('.history__editor');
+    const editInput = li.querySelector('.history__edit-input');
+    const retranslateBtn = li.querySelector('[data-action="retranslate"]');
+    const cancelBtn = li.querySelector('[data-action="cancel"]');
+    const editBtn = li.querySelector('[data-action="edit"]');
+    const speakBtn = li.querySelector('[data-action="speak"]');
+    const deleteBtn = li.querySelector('[data-action="delete"]');
+
+    srcEl.textContent = entry.srcText;
+    dstEl.textContent = entry.dstText;
+
+    const openEditor = (from = 'tap') => {
+      srcRow.hidden = true;
+      editor.hidden = false;
+      editInput.value = entry.srcText;
+      editInput.focus();
+      const len = editInput.value.length;
+      editInput.setSelectionRange(len, len);
+      setTimeout(() => {
+        editInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 50);
+      if (from && from.startsWith('longpress')) {
+        log.info('履歴の長押しで原文編集を開く', { id: entry.id, from });
+      }
+    };
+
+    const closeEditor = () => {
+      editor.hidden = true;
+      srcRow.hidden = false;
+    };
+
+    srcEl.addEventListener('click', () => openEditor('tap-src'));
+    srcEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openEditor('keyboard-src');
+      }
+    });
+
+    dstEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openEditor('keyboard-dst');
+      }
+    });
+
+    editBtn.addEventListener('click', () => openEditor('button'));
+    cancelBtn.addEventListener('click', closeEditor);
+
+    bindLongPress(li, () => openEditor('longpress'), {
+      ignoreSelector: 'button, textarea, input, select, a',
+      onStart: (e) => {
+        if (e.target.closest('.history__dst')) {
+          dstEl.classList.add('history__dst--pressing');
+        } else if (e.target.closest('.history__src')) {
+          srcEl.classList.add('history__src--pressing');
+        } else {
+          li.classList.add('history__item--pressing');
+        }
+      },
+      onEnd: () => {
+        dstEl.classList.remove('history__dst--pressing');
+        srcEl.classList.remove('history__src--pressing');
+        li.classList.remove('history__item--pressing');
+      },
+    });
+
+    editInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        retranslateBtn.click();
+      } else if (e.key === 'Escape') {
+        closeEditor();
+      }
+    });
+
+    retranslateBtn.addEventListener('click', async () => {
+      const newText = editInput.value.trim();
+      if (!newText) {
+        toast('テキストを入力してください');
+        return;
+      }
+      retranslateBtn.disabled = true;
+      cancelBtn.disabled = true;
+      const prevDst = entry.dstText;
+      dstEl.textContent = '再翻訳中…';
+      try {
+        let dstText;
+        if (useOnline()) {
+          const r = await online.translateText(newText, entry.srcLang, entry.dstLang);
+          dstText = (r.translation ?? '').trim();
+        } else {
+          const t = await translateOffline(entry.srcLang, entry.dstLang, newText);
+          dstText = t.text;
+        }
+        entry.srcText = newText;
+        entry.dstText = dstText;
+        entry.ts = Date.now();
+        await history.update(entry);
+        srcEl.textContent = entry.srcText;
+        dstEl.textContent = entry.dstText;
+        timeEl.textContent = dateFmt(entry.ts);
+        closeEditor();
+        toast('再翻訳しました');
+        log.info('履歴を編集・再翻訳', { id: entry.id, len: newText.length });
+
+        // 会話画面（chat view）にも同じIDのバブルがあれば表示を同期
+        const bubble = el.conversation.querySelector(`.bubble[data-id="${entry.id}"]`);
+        if (bubble) {
+          bubble.querySelector('.bubble__src').textContent = entry.srcText;
+          bubble.querySelector('.bubble__dst').textContent = entry.dstText;
+          const bTime = bubble.querySelector('.bubble__meta time');
+          if (bTime) bTime.textContent = timeFmt(entry.ts);
+        }
+
+        if (settings.autoSpeak) await speakEntry(entry);
+      } catch (e) {
+        log.error('履歴の再翻訳に失敗', e);
+        dstEl.textContent = prevDst;
+        toast(`再翻訳に失敗しました: ${e.message}`);
+      } finally {
+        retranslateBtn.disabled = false;
+        cancelBtn.disabled = false;
+      }
+    });
+
+    speakBtn.addEventListener('click', () => speakEntry(entry));
+    deleteBtn.addEventListener('click', async () => {
+      if (!confirm('この履歴を削除します。よろしいですか？')) return;
       await history.remove(entry.id);
       li.remove();
       el.conversation.querySelector(`.bubble[data-id="${entry.id}"]`)?.remove();
       const rest = el.historyList.children.length;
       el.historyEmpty.hidden = rest > 0;
       el.historyClear.hidden = rest === 0;
+      toast('履歴を削除しました');
       log.info('履歴を削除', { id: entry.id });
     });
     el.historyList.appendChild(li);
