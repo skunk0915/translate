@@ -1,7 +1,7 @@
 <?php
 /**
  * Transrate 履歴 API
- * 端末(device UUID)ごとに SQLite データベースへ履歴を永続保存する。
+ * 認証ユーザー(user_id)ごとに SQLite データベースへ履歴を永続保存する。
  *
  * エンドポイント: POST /api/history.php
  * アクション: list, add, update, remove, clear, sync
@@ -23,7 +23,6 @@ function dataDir(): string
 {
     $dir = getenv('TRANSRATE_DATA_DIR');
     if (!$dir) {
-        // カゴヤVPS等の本番で /var/lib/transrate が使えるか確認、不可ならローカル開発用 data/
         $dir = is_dir(DATA_DIR_DEFAULT) || @mkdir(DATA_DIR_DEFAULT, 0750, true)
             ? DATA_DIR_DEFAULT
             : __DIR__ . '/../../data';
@@ -53,7 +52,7 @@ function fail(int $status, string $message, array $data = []): never
 {
     http_response_code($status);
     logError($message, $data);
-    echo json_encode(['error' => $message], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['ok' => false, 'error' => $message, 'code' => $data['code'] ?? 'ERROR'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -75,6 +74,7 @@ function getDb(): PDO
         $pdo->exec('
             CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL DEFAULT "",
                 device_id TEXT NOT NULL,
                 ts INTEGER NOT NULL,
                 src_lang TEXT NOT NULL,
@@ -90,12 +90,62 @@ function getDb(): PDO
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
-            CREATE INDEX IF NOT EXISTS idx_history_device_ts ON history (device_id, ts DESC);
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions (token);
         ');
+
+        // マイグレーション: user_id カラムが存在しない場合は追加し、既存データを 'mizy' に統合
+        $cols = $pdo->query("PRAGMA table_info(history)")->fetchAll(PDO::FETCH_ASSOC);
+        $hasUserId = false;
+        foreach ($cols as $c) {
+            if (($c['name'] ?? '') === 'user_id') {
+                $hasUserId = true;
+                break;
+            }
+        }
+        if (!$hasUserId) {
+            $pdo->exec('ALTER TABLE history ADD COLUMN user_id TEXT NOT NULL DEFAULT "";');
+            $pdo->exec("UPDATE history SET user_id = 'mizy' WHERE user_id = '' OR user_id IS NULL;");
+        }
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_history_user_ts ON history (user_id, ts DESC);');
     } catch (Throwable $e) {
         fail(500, 'データベース接続に失敗しました: ' . $e->getMessage());
     }
     return $pdo;
+}
+
+function getAuthenticatedUser(PDO $db, array $req): ?string
+{
+    $token = null;
+    if (!empty($_COOKIE['transrate_auth'])) {
+        $token = (string) $_COOKIE['transrate_auth'];
+    } elseif (!empty($req['token'])) {
+        $token = (string) $req['token'];
+    } else {
+        $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        if (str_starts_with($auth, 'Bearer ')) {
+            $token = substr($auth, 7);
+        }
+    }
+    if (!$token) {
+        return null;
+    }
+    try {
+        $stmt = $db->prepare('SELECT user_id, expires_at FROM sessions WHERE token = :t LIMIT 1');
+        $stmt->execute([':t' => $token]);
+        $row = $stmt->fetch();
+        if ($row && (int) $row['expires_at'] > time()) {
+            return (string) $row['user_id'];
+        }
+    } catch (Throwable $e) {
+        return null;
+    }
+    return null;
 }
 
 // 送信元チェック
@@ -121,20 +171,27 @@ if (!is_array($req)) {
     fail(400, 'JSON を解釈できません');
 }
 
-$uuidPattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+$db = getDb();
+$userId = getAuthenticatedUser($db, $req);
+if (!$userId) {
+    fail(401, 'ログインが必要です', ['code' => 'UNAUTHORIZED']);
+}
+
 $device = trim((string) ($req['device'] ?? ''));
-if (!preg_match($uuidPattern, $device)) {
-    fail(400, 'device ID が不正です');
+if ($device !== '') {
+    $uuidPattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+    if (!preg_match($uuidPattern, $device)) {
+        $device = '';
+    }
 }
 
 $action = (string) ($req['action'] ?? 'list');
-$db = getDb();
 
 switch ($action) {
     case 'list':
         $limit = min(500, max(1, (int) ($req['limit'] ?? 200)));
-        $stmt = $db->prepare('SELECT * FROM history WHERE device_id = :device ORDER BY ts DESC LIMIT :limit');
-        $stmt->bindValue(':device', $device, PDO::PARAM_STR);
+        $stmt = $db->prepare('SELECT * FROM history WHERE user_id = :user ORDER BY ts DESC LIMIT :limit');
+        $stmt->bindValue(':user', $userId, PDO::PARAM_STR);
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
         $rows = $stmt->fetchAll();
@@ -182,10 +239,11 @@ switch ($action) {
             : null;
 
         $stmt = $db->prepare('
-            INSERT INTO history (device_id, ts, src_lang, dst_lang, src_text, dst_text, detect_ms, transcribe_ms, translate_ms, source, mode, extra_translations)
-            VALUES (:device, :ts, :src_lang, :dst_lang, :src_text, :dst_text, :detect_ms, :transcribe_ms, :translate_ms, :source, :mode, :extra)
+            INSERT INTO history (user_id, device_id, ts, src_lang, dst_lang, src_text, dst_text, detect_ms, transcribe_ms, translate_ms, source, mode, extra_translations)
+            VALUES (:user, :device, :ts, :src_lang, :dst_lang, :src_text, :dst_text, :detect_ms, :transcribe_ms, :translate_ms, :source, :mode, :extra)
         ');
         $stmt->execute([
+            ':user' => $userId,
             ':device' => $device,
             ':ts' => $ts,
             ':src_lang' => $srcLang,
@@ -219,11 +277,11 @@ switch ($action) {
         $stmt = $db->prepare('
             UPDATE history
             SET src_text = :src_text, dst_text = :dst_text, extra_translations = :extra, ts = :ts, updated_at = datetime("now", "localtime")
-            WHERE id = :id AND device_id = :device
+            WHERE id = :id AND user_id = :user
         ');
         $stmt->execute([
             ':id' => $id,
-            ':device' => $device,
+            ':user' => $userId,
             ':src_text' => $srcText,
             ':dst_text' => $dstText,
             ':extra' => $extraJson,
@@ -238,14 +296,14 @@ switch ($action) {
         if ($id <= 0) {
             fail(400, 'id が不正です');
         }
-        $stmt = $db->prepare('DELETE FROM history WHERE id = :id AND device_id = :device');
-        $stmt->execute([':id' => $id, ':device' => $device]);
+        $stmt = $db->prepare('DELETE FROM history WHERE id = :id AND user_id = :user');
+        $stmt->execute([':id' => $id, ':user' => $userId]);
         echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
         break;
 
     case 'clear':
-        $stmt = $db->prepare('DELETE FROM history WHERE device_id = :device');
-        $stmt->execute([':device' => $device]);
+        $stmt = $db->prepare('DELETE FROM history WHERE user_id = :user');
+        $stmt->execute([':user' => $userId]);
         echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
         break;
 
@@ -254,27 +312,26 @@ switch ($action) {
         if (!is_array($clientEntries)) {
             fail(400, 'entries が配列ではありません');
         }
-        // クライアント側から送られてきた未保存エントリを一括登録
         if (!empty($clientEntries)) {
             $db->beginTransaction();
             try {
                 $insertStmt = $db->prepare('
-                    INSERT INTO history (device_id, ts, src_lang, dst_lang, src_text, dst_text, detect_ms, transcribe_ms, translate_ms, source, mode, extra_translations)
-                    VALUES (:device, :ts, :src_lang, :dst_lang, :src_text, :dst_text, :detect_ms, :transcribe_ms, :translate_ms, :source, :mode, :extra)
+                    INSERT INTO history (user_id, device_id, ts, src_lang, dst_lang, src_text, dst_text, detect_ms, transcribe_ms, translate_ms, source, mode, extra_translations)
+                    VALUES (:user, :device, :ts, :src_lang, :dst_lang, :src_text, :dst_text, :detect_ms, :transcribe_ms, :translate_ms, :source, :mode, :extra)
                 ');
                 foreach ($clientEntries as $e) {
                     if (!is_array($e)) continue;
                     $ts = is_numeric($e['ts'] ?? null) ? (int) $e['ts'] : (int) (microtime(true) * 1000);
-                    // 同一tsとsrcTextの重複チェック
-                    $check = $db->prepare('SELECT id FROM history WHERE device_id = :device AND ts = :ts AND src_text = :src_text LIMIT 1');
-                    $check->execute([':device' => $device, ':ts' => $ts, ':src_text' => (string) ($e['srcText'] ?? '')]);
+                    $check = $db->prepare('SELECT id FROM history WHERE user_id = :user AND ts = :ts AND src_text = :src_text LIMIT 1');
+                    $check->execute([':user' => $userId, ':ts' => $ts, ':src_text' => (string) ($e['srcText'] ?? '')]);
                     if ($check->fetch()) {
-                        continue; // すでに登録済み
+                        continue;
                     }
                     $extraJson = !empty($e['extraTranslations']) && is_array($e['extraTranslations'])
                         ? json_encode($e['extraTranslations'], JSON_UNESCAPED_UNICODE)
                         : null;
                     $insertStmt->execute([
+                        ':user' => $userId,
                         ':device' => $device,
                         ':ts' => $ts,
                         ':src_lang' => (string) ($e['srcLang'] ?? ''),
@@ -295,9 +352,8 @@ switch ($action) {
                 fail(500, '一括同期に失敗しました: ' . $e->getMessage());
             }
         }
-        // サーバー側の最新一覧を返却
-        $stmt = $db->prepare('SELECT * FROM history WHERE device_id = :device ORDER BY ts DESC LIMIT 200');
-        $stmt->execute([':device' => $device]);
+        $stmt = $db->prepare('SELECT * FROM history WHERE user_id = :user ORDER BY ts DESC LIMIT 200');
+        $stmt->execute([':user' => $userId]);
         $rows = $stmt->fetchAll();
         $list = [];
         foreach ($rows as $row) {

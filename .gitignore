@@ -7,4 +7,5 @@ dev-dist/
 *.log
 .vite/
 logs/
+data/
 !.env.example
