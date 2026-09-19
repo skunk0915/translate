@@ -51,8 +51,8 @@
 
           <div class="conversation" id="conversation" aria-live="polite">
             <div class="conversation__empty" id="conversationEmpty">
-              <p class="conversation__hint">話しかけると、どちらの言語かを判定して相手の言語に翻訳し、読み上げます。</p>
-              <p class="conversation__hint conversation__hint--sub">ボタンを押す必要はありません。置いたままで会話できます。</p>
+              <p class="conversation__hint" id="conversationHint">ボタンを長押ししながら話してください。指を離すと即座に翻訳します。</p>
+              <p class="conversation__hint conversation__hint--sub" id="conversationHintSub">マイク（自動認識）または左右の言語ボタンを長押しできます。</p>
             </div>
           </div>
 
@@ -116,6 +116,15 @@
                 <span class="choice__body"><strong>オフライン（端末内）</strong><span>ダウンロード済みの言語データだけで動作</span></span>
               </label>
             </div>
+            <label class="field field--spacing">
+              <span class="field__label">思考レベル（オンライン翻訳）</span>
+              <select id="thinkingLevel" class="select">
+                <option value="minimal">最速（思考最小・約1秒・おすすめ）</option>
+                <option value="low">高速（思考少・約2秒）</option>
+                <option value="medium">標準（高精度・約3〜4秒）</option>
+              </select>
+            </label>
+            <p class="note note--info">Gemini 3 Flash の思考深さを設定します。「最速」にすると待機時間が最も短縮されます。</p>
           </section>
 
           <section class="card">
@@ -146,9 +155,29 @@
           </section>
 
           <section class="card">
-            <h3 class="card__title">音声認識</h3>
+            <h3 class="card__title">音声入力・認識</h3>
             <label class="field">
-              <span class="field__label">認識モデルの大きさ</span>
+              <span class="field__label">音声入力方式</span>
+              <select id="speechDetectMode" class="select">
+                <option value="manual">手動（長押し・プッシュツートーク・最速）</option>
+                <option value="auto">自動（無音検知・ハンズフリー）</option>
+              </select>
+            </label>
+            <p class="note note--info" id="speechDetectNote">ボタンを押している間だけ録音し、離した瞬間に即座に翻訳します（息継ぎでの誤作動なし）。</p>
+            <div id="vadSilenceGroup">
+              <label class="field">
+                <span class="field__label">話し終わりの判定（間）</span>
+                <select id="vadSilence" class="select">
+                  <option value="1000">短め（1.0秒・テンポ重視）</option>
+                  <option value="1400">標準（1.4秒・おすすめ）</option>
+                  <option value="1800">長め（1.8秒・途切れ防止）</option>
+                  <option value="2200">かなり長め（2.2秒）</option>
+                </select>
+              </label>
+              <p class="note note--info">※自動モードで一瞬の間で文が途切れてしまうときは「長め」にしてください。</p>
+            </div>
+            <label class="field">
+              <span class="field__label">認識モデルの大きさ（オフライン）</span>
               <select id="whisperSize" class="select">
                 <option value="tiny">小（約40MB・高速・精度低め）</option>
                 <option value="base">中（約75MB・標準）</option>
@@ -157,26 +186,16 @@
             </label>
             <p class="note" id="whisperNote"></p>
             <label class="field">
-              <span class="field__label">話し終わりの判定（間）</span>
-              <select id="vadSilence" class="select">
-                <option value="1000">短め（1.0秒・テンポ重視）</option>
-                <option value="1400">標準（1.4秒・おすすめ）</option>
-                <option value="1800">長め（1.8秒・途切れ防止）</option>
-                <option value="2200">かなり長め（2.2秒）</option>
-              </select>
-            </label>
-            <p class="note note--info">一瞬の間で文が途切れて翻訳されてしまうときは「長め」にしてください。</p>
-            <label class="field">
-              <span class="field__label">処理エンジン</span>
+              <span class="field__label">処理エンジン（オフライン）</span>
               <select id="device" class="select">
                 <option value="wasm">CPU（WebAssembly・安定）</option>
                 <option value="webgpu">GPU（WebGPU・対応端末のみ）</option>
               </select>
             </label>
-            <label class="toggle toggle--block">
+            <label class="toggle toggle--block" id="autoListenToggleGroup">
               <input type="checkbox" id="autoListenToggle" checked />
               <span class="toggle__track" aria-hidden="true"></span>
-              <span class="toggle__label">起動時に自動で聞き取りを開始する</span>
+              <span class="toggle__label">起動時に自動で聞き取りを開始する（自動モード時）</span>
             </label>
           </section>
 

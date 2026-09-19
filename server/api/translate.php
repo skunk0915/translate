@@ -78,18 +78,23 @@ function loadEnv(): array
 }
 
 // ---- 入口チェック ----
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    fail(405, 'POST のみ受け付けます');
-}
-$originHeader = $_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '';
-$originHost = $originHeader ? (parse_url($originHeader, PHP_URL_HOST) ?? '') : '';
-$originPort = $originHeader ? parse_url($originHeader, PHP_URL_PORT) : null;
-$originKey = $originPort ? "{$originHost}:{$originPort}" : $originHost;
-if (!in_array($originKey, ALLOWED_HOSTS, true)) {
-    fail(403, '許可されていない送信元です', ['origin' => $originHeader]);
+if (php_sapi_name() !== 'cli') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        fail(405, 'POST のみ受け付けます');
+    }
+    $originHeader = $_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '';
+    $originHost = $originHeader ? (parse_url($originHeader, PHP_URL_HOST) ?? '') : '';
+    $originPort = $originHeader ? parse_url($originHeader, PHP_URL_PORT) : null;
+    $originKey = $originPort ? "{$originHost}:{$originPort}" : $originHost;
+    if (!in_array($originKey, ALLOWED_HOSTS, true)) {
+        fail(403, '許可されていない送信元です', ['origin' => $originHeader]);
+    }
 }
 
 $raw = file_get_contents('php://input');
+if (($raw === false || $raw === '') && php_sapi_name() === 'cli') {
+    $raw = file_get_contents('php://stdin');
+}
 if ($raw === false || strlen($raw) > MAX_AUDIO_BASE64 + 4096) {
     fail(413, 'リクエストが大きすぎます');
 }
@@ -173,13 +178,21 @@ if (isset($req['audio'])) {
     fail(400, 'audio または text が必要です');
 }
 
+$validThinkingLevels = [
+    'minimal' => 'MINIMAL',
+    'low' => 'LOW',
+    'medium' => 'MEDIUM',
+];
+$reqLevel = strtolower(trim((string) ($req['thinkingLevel'] ?? $req['thinking_level'] ?? 'minimal')));
+$thinkingLevel = $validThinkingLevels[$reqLevel] ?? 'MINIMAL';
+
 $body = [
     'contents' => [['parts' => $parts]],
     'generationConfig' => [
         'temperature' => 0.2,
         'response_mime_type' => 'application/json',
         'response_schema' => $schema,
-        'thinkingConfig' => ['thinkingLevel' => 'low'],
+        'thinkingConfig' => ['thinkingLevel' => $thinkingLevel],
     ],
 ];
 
@@ -214,5 +227,5 @@ if (!is_array($out)) {
 }
 
 $out['ms'] = $ms;
-logLine('info', "ok {$mode}", ['ms' => $ms, 'lang' => $out['lang'] ?? null, 'len' => mb_strlen($out['translation'] ?? ''), 'tokens' => $json['usageMetadata']['totalTokenCount'] ?? null]);
+logLine('info', "ok {$mode}", ['ms' => $ms, 'lang' => $out['lang'] ?? null, 'len' => mb_strlen($out['translation'] ?? ''), 'thinking' => $thinkingLevel, 'tokens' => $json['usageMetadata']['totalTokenCount'] ?? null]);
 echo json_encode($out, JSON_UNESCAPED_UNICODE);

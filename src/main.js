@@ -7,6 +7,7 @@ import { log } from './logger.js';
 import { startRemoteLog, deviceId } from './remote-log.js';
 import { hasModelFiles, deleteModelCache, requestPersistentStorage, storageEstimate } from './models.js';
 import { createVad } from './vad.js';
+import { PttRecorder } from './recorder.js';
 import * as tts from './tts.js';
 
 // ------------------------------------------------------------
@@ -24,6 +25,8 @@ const DEFAULTS = {
   voices: {}, // lang -> voiceURI
   typedLang: 'A',
   vadSilenceMs: 1400, // 話し終わりの判定(間) ms
+  speechDetectMode: 'manual', // manual (プッシュツートーク) | auto (無音検知)
+  thinkingLevel: 'minimal',   // minimal (最速) | low (高速) | medium (標準)
 };
 const settings = { ...DEFAULTS };
 
@@ -35,6 +38,8 @@ async function loadSettings() {
   if (!['tiny', 'base', 'small'].includes(settings.whisperSize)) settings.whisperSize = DEFAULTS.whisperSize;
   if (!['auto', 'online', 'offline'].includes(settings.mode)) settings.mode = DEFAULTS.mode;
   if (!settings.vadSilenceMs || isNaN(settings.vadSilenceMs)) settings.vadSilenceMs = DEFAULTS.vadSilenceMs;
+  if (!['manual', 'auto'].includes(settings.speechDetectMode)) settings.speechDetectMode = DEFAULTS.speechDetectMode;
+  if (!['minimal', 'low', 'medium'].includes(settings.thinkingLevel)) settings.thinkingLevel = DEFAULTS.thinkingLevel;
 }
 
 // オンラインモードを使うか(自動のときは通信可否で決める)
@@ -112,6 +117,13 @@ const el = {
   logCopy: $('logCopy'),
   logClear: $('logClear'),
   deviceIdText: $('deviceIdText'),
+  thinkingLevel: $('thinkingLevel'),
+  speechDetectMode: $('speechDetectMode'),
+  speechDetectNote: $('speechDetectNote'),
+  vadSilenceGroup: $('vadSilenceGroup'),
+  autoListenToggleGroup: $('autoListenToggleGroup'),
+  conversationHint: $('conversationHint'),
+  conversationHintSub: $('conversationHintSub'),
   versionText: $('versionText'),
   toast: $('toast'),
 };
@@ -560,7 +572,7 @@ async function translateOffline(srcLang, dstLang, text) {
 
 async function translateTextGeneral(text, srcLang, dstLang) {
   if (useOnline()) {
-    const r = await online.translateText(text, srcLang, dstLang);
+    const r = await online.translateText(text, srcLang, dstLang, settings.thinkingLevel);
     return (r.translation ?? '').trim();
   } else {
     const route = routeFor(srcLang, dstLang);
@@ -584,6 +596,11 @@ let busy = false;
 const queue = [];
 let wakeLock = null;
 
+const pttRecorder = new PttRecorder();
+let isPttRecording = false;
+let pttActiveMode = null;
+let pttPointerId = null;
+
 function renderVoiceControls() {
   const la = LANGUAGES[settings.langA];
   const lb = LANGUAGES[settings.langB];
@@ -593,25 +610,52 @@ function renderVoiceControls() {
   if (el.langBName && lb) el.langBName.textContent = lb.name;
 
   const disabled = settings.langA === settings.langB || el.micButton.disabled;
-  if (el.langABtn) {
-    el.langABtn.disabled = disabled;
-    const active = listening && voiceMode === 'langA';
-    el.langABtn.dataset.active = active ? 'true' : 'false';
-    el.langABtn.setAttribute('aria-pressed', active ? 'true' : 'false');
-    el.langABtn.setAttribute('aria-label', `${la?.name ?? '言語A'}で音声認識${active ? '（動作中）' : ''}`);
-  }
-  if (el.langBBtn) {
-    el.langBBtn.disabled = disabled;
-    const active = listening && voiceMode === 'langB';
-    el.langBBtn.dataset.active = active ? 'true' : 'false';
-    el.langBBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
-    el.langBBtn.setAttribute('aria-label', `${lb?.name ?? '言語B'}で音声認識${active ? '（動作中）' : ''}`);
-  }
+  if (el.langABtn) el.langABtn.disabled = disabled;
+  if (el.langBBtn) el.langBBtn.disabled = disabled;
 
-  const micActive = listening && voiceMode === 'auto';
-  el.micButton.dataset.active = micActive ? 'true' : 'false';
-  el.micButton.setAttribute('aria-pressed', micActive ? 'true' : 'false');
-  el.micLabel.textContent = micActive ? '自動認識 動作中' : '自動認識 停止中';
+  const isManual = settings.speechDetectMode === 'manual';
+
+  if (isManual) {
+    if (isPttRecording) {
+      el.micButton.dataset.recording = pttActiveMode === 'auto' ? 'true' : 'false';
+      if (el.langABtn) el.langABtn.dataset.recording = pttActiveMode === 'langA' ? 'true' : 'false';
+      if (el.langBBtn) el.langBBtn.dataset.recording = pttActiveMode === 'langB' ? 'true' : 'false';
+      el.micButton.dataset.active = 'false';
+      if (el.langABtn) el.langABtn.dataset.active = 'false';
+      if (el.langBBtn) el.langBBtn.dataset.active = 'false';
+      el.micLabel.textContent = '録音中…（離すと翻訳）';
+    } else {
+      el.micButton.dataset.recording = 'false';
+      if (el.langABtn) el.langABtn.dataset.recording = 'false';
+      if (el.langBBtn) el.langBBtn.dataset.recording = 'false';
+      el.micButton.dataset.active = 'false';
+      if (el.langABtn) el.langABtn.dataset.active = 'false';
+      if (el.langBBtn) el.langBBtn.dataset.active = 'false';
+      el.micLabel.textContent = '長押しで自動認識';
+    }
+  } else {
+    el.micButton.dataset.recording = 'false';
+    if (el.langABtn) el.langABtn.dataset.recording = 'false';
+    if (el.langBBtn) el.langBBtn.dataset.recording = 'false';
+
+    const aActive = listening && voiceMode === 'langA';
+    if (el.langABtn) {
+      el.langABtn.dataset.active = aActive ? 'true' : 'false';
+      el.langABtn.setAttribute('aria-pressed', aActive ? 'true' : 'false');
+      el.langABtn.setAttribute('aria-label', `${la?.name ?? '言語A'}で音声認識${aActive ? '（動作中）' : ''}`);
+    }
+    const bActive = listening && voiceMode === 'langB';
+    if (el.langBBtn) {
+      el.langBBtn.dataset.active = bActive ? 'true' : 'false';
+      el.langBBtn.setAttribute('aria-pressed', bActive ? 'true' : 'false');
+      el.langBBtn.setAttribute('aria-label', `${lb?.name ?? '言語B'}で音声認識${bActive ? '（動作中）' : ''}`);
+    }
+
+    const micActive = listening && voiceMode === 'auto';
+    el.micButton.dataset.active = micActive ? 'true' : 'false';
+    el.micButton.setAttribute('aria-pressed', micActive ? 'true' : 'false');
+    el.micLabel.textContent = micActive ? '自動認識 動作中' : '自動認識 停止中';
+  }
 }
 
 const otherLang = (l) => (l === settings.langA ? settings.langB : settings.langA);
@@ -661,12 +705,12 @@ async function handleJob(job) {
       setStatus('translating', 'オンライン翻訳中');
       if (job.kind === 'audio') {
         const fixedSrc = job.voiceMode === 'langA' ? settings.langA : job.voiceMode === 'langB' ? settings.langB : null;
-        const r = await online.recognizeAndTranslate(job.audio, [settings.langA, settings.langB], fixedSrc);
+        const r = await online.recognizeAndTranslate(job.audio, [settings.langA, settings.langB], fixedSrc, settings.thinkingLevel);
         srcLang = r.lang;
         srcText = (r.transcript ?? '').trim();
         dstText = (r.translation ?? '').trim();
         translateMs = r.ms;
-        log.info('オンライン音声翻訳', { lang: srcLang, text: srcText, ms: r.ms, sec: job.seconds, voiceMode: job.voiceMode, fixedSrc });
+        log.info('オンライン音声翻訳', { lang: srcLang, text: srcText, ms: r.ms, sec: job.seconds, voiceMode: job.voiceMode, fixedSrc, thinking: settings.thinkingLevel });
         if (isNoise(srcText) || !dstText) {
           pendingEl.remove();
           log.info('無音/ノイズとして破棄', { text: srcText });
@@ -677,10 +721,10 @@ async function handleJob(job) {
         srcLang = job.lang;
         srcText = job.text;
         dstLang = otherLang(srcLang);
-        const r = await online.translateText(srcText, srcLang, dstLang);
+        const r = await online.translateText(srcText, srcLang, dstLang, settings.thinkingLevel);
         dstText = (r.translation ?? '').trim();
         translateMs = r.ms;
-        log.info('オンライン翻訳', { from: srcLang, to: dstLang, ms: r.ms, text: dstText });
+        log.info('オンライン翻訳', { from: srcLang, to: dstLang, ms: r.ms, text: dstText, thinking: settings.thinkingLevel });
       }
     } else {
       // ---- オフライン: Whisper → Marian(必要なら英語経由) ----
@@ -1655,6 +1699,45 @@ el.whisperSize.addEventListener('change', async () => {
   if (isReady() && settings.autoListen) startListening();
 });
 
+el.thinkingLevel.addEventListener('change', async () => {
+  settings.thinkingLevel = el.thinkingLevel.value;
+  await saveSettings();
+  log.info('思考レベル変更', { thinkingLevel: settings.thinkingLevel });
+});
+
+el.speechDetectMode.addEventListener('change', async () => {
+  settings.speechDetectMode = el.speechDetectMode.value;
+  await saveSettings();
+  updateSpeechDetectModeUI();
+  log.info('音声入力方式変更', { speechDetectMode: settings.speechDetectMode });
+});
+
+function updateSpeechDetectModeUI() {
+  const isManual = settings.speechDetectMode === 'manual';
+  if (el.speechDetectMode) el.speechDetectMode.value = settings.speechDetectMode;
+  if (el.vadSilenceGroup) el.vadSilenceGroup.classList.toggle('is-mode-hidden', isManual);
+  if (el.autoListenToggleGroup) el.autoListenToggleGroup.classList.toggle('is-mode-hidden', isManual);
+  if (el.speechDetectNote) {
+    el.speechDetectNote.textContent = isManual
+      ? 'ボタンを押している間だけ録音し、離した瞬間に即座に翻訳します（息継ぎでの誤作動なし）。'
+      : 'ボタンを押すと常時聞き取りを開始し、話し終わりの沈黙を検知して自動で翻訳します。';
+  }
+  if (el.conversationHint) {
+    el.conversationHint.textContent = isManual
+      ? 'ボタンを長押ししながら話してください。指を離すと即座に翻訳します。'
+      : '話しかけると、どちらの言語かを判定して相手の言語に翻訳し、読み上げます。';
+  }
+  if (el.conversationHintSub) {
+    el.conversationHintSub.textContent = isManual
+      ? 'マイク（自動認識）または左右の言語ボタンを長押しできます。'
+      : 'ボタンを押す必要はありません。置いたままで会話できます。';
+  }
+  if (isManual && listening) {
+    stopListening().catch(() => {});
+  }
+  renderVoiceControls();
+}
+
 el.vadSilence.addEventListener('change', async () => {
   settings.vadSilenceMs = Number(el.vadSilence.value);
   await saveSettings();
@@ -2042,10 +2125,140 @@ async function toggleVoiceListening(mode) {
   }
 }
 
-el.micButton.addEventListener('click', () => toggleVoiceListening('auto'));
-el.langABtn?.addEventListener('click', () => toggleVoiceListening('langA'));
-el.langBBtn?.addEventListener('click', () => toggleVoiceListening('langB'));
-el.micBannerAction.addEventListener('click', () => startListening());
+// ---- 手動録音 (プッシュ・トゥ・トーク) 制御 ----
+async function startPtt(mode, targetBtn, pointerId = null) {
+  if (isPttRecording) return;
+  if (!isReady()) {
+    updateReadiness();
+    showView('settings');
+    toast('先に言語データをダウンロードするか、オンラインモードに切り替えてください');
+    return;
+  }
+  if (busy) {
+    toast('前の処理が完了するまでお待ちください');
+    return;
+  }
+
+  try {
+    isPttRecording = true;
+    pttActiveMode = mode;
+    pttPointerId = pointerId;
+
+    if (pointerId !== null && targetBtn.setPointerCapture) {
+      try {
+        targetBtn.setPointerCapture(pointerId);
+      } catch (_) {}
+    }
+
+    try {
+      navigator.vibrate?.(35);
+    } catch (_) {}
+
+    await pttRecorder.start();
+
+    renderVoiceControls();
+    const langA = LANGUAGES[settings.langA];
+    const langB = LANGUAGES[settings.langB];
+    const targetName = mode === 'langA' ? (langA?.name || '言語A') : mode === 'langB' ? (langB?.name || '言語B') : '自動認識';
+    setStatus('hearing', `${targetName} 録音中…`);
+    log.info('PTT 録音開始', { mode });
+  } catch (e) {
+    log.error('PTT 録音開始に失敗', e);
+    isPttRecording = false;
+    pttActiveMode = null;
+    pttPointerId = null;
+    renderVoiceControls();
+    toast(`マイク開始に失敗しました: ${e.message}`);
+  }
+}
+
+async function stopPtt(targetBtn) {
+  if (!isPttRecording) return;
+  const mode = pttActiveMode;
+  isPttRecording = false;
+  pttActiveMode = null;
+
+  if (pttPointerId !== null && targetBtn.releasePointerCapture) {
+    try {
+      targetBtn.releasePointerCapture(pttPointerId);
+    } catch (_) {}
+  }
+  pttPointerId = null;
+
+  try {
+    navigator.vibrate?.(25);
+  } catch (_) {}
+
+  const res = await pttRecorder.stop();
+  renderVoiceControls();
+
+  if (!res || !res.audio || res.seconds < 0.25) {
+    log.info('PTT 音声が短すぎるためスキップ', { seconds: res?.seconds });
+    toast('録音時間が短すぎます。ボタンを長押ししながら話してください');
+    setStatus('idle');
+    return;
+  }
+
+  log.info('PTT 録音完了・翻訳キューへ', { seconds: res.seconds, mode });
+  enqueue({ kind: 'audio', audio: res.audio, seconds: res.seconds, voiceMode: mode });
+}
+
+function cancelPtt(targetBtn) {
+  if (!isPttRecording) return;
+  isPttRecording = false;
+  pttActiveMode = null;
+  if (pttPointerId !== null && targetBtn.releasePointerCapture) {
+    try {
+      targetBtn.releasePointerCapture(pttPointerId);
+    } catch (_) {}
+  }
+  pttPointerId = null;
+  pttRecorder.cancel();
+  renderVoiceControls();
+  setStatus('idle');
+}
+
+function bindVoiceButton(btn, mode) {
+  if (!btn) return;
+
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return; // 主ボタン(左クリック/タッチ)のみ
+    if (settings.speechDetectMode === 'manual') {
+      e.preventDefault();
+      startPtt(mode, btn, e.pointerId);
+    }
+  });
+
+  btn.addEventListener('pointerup', (e) => {
+    if (settings.speechDetectMode === 'manual') {
+      e.preventDefault();
+      stopPtt(btn);
+    }
+  });
+
+  btn.addEventListener('pointercancel', (e) => {
+    if (settings.speechDetectMode === 'manual') {
+      cancelPtt(btn);
+    }
+  });
+
+  btn.addEventListener('click', (e) => {
+    if (settings.speechDetectMode === 'auto') {
+      toggleVoiceListening(mode);
+    } else {
+      e.preventDefault();
+    }
+  });
+}
+
+bindVoiceButton(el.micButton, 'auto');
+bindVoiceButton(el.langABtn, 'langA');
+bindVoiceButton(el.langBBtn, 'langB');
+
+el.micBannerAction.addEventListener('click', () => {
+  if (settings.speechDetectMode === 'auto') startListening();
+  else toast('ボタンを長押しして話してください');
+});
 el.stopSpeak.addEventListener('click', () => tts.stop());
 document.querySelectorAll('.tabbar__item').forEach((b) => b.addEventListener('click', () => showView(b.dataset.viewTarget)));
 
@@ -2105,6 +2318,8 @@ async function boot() {
   el.rate.value = settings.rate;
   el.rateValue.textContent = Number(settings.rate).toFixed(1);
   el.vadSilence.value = String(settings.vadSilenceMs);
+  el.thinkingLevel.value = settings.thinkingLevel;
+  updateSpeechDetectModeUI();
   el.versionText.textContent = `Transrate v${__APP_VERSION__}`;
   renderPair();
   renderMode();
@@ -2122,12 +2337,12 @@ async function boot() {
     } catch {}
   }
 
-  log.info('起動', { ua: navigator.userAgent, online: navigator.onLine, mode: settings.mode, pair: [settings.langA, settings.langB], whisper: settings.whisperSize, standalone: isStandalone(), appShellReady });
+  log.info('起動', { ua: navigator.userAgent, online: navigator.onLine, mode: settings.mode, pair: [settings.langA, settings.langB], whisper: settings.whisperSize, speechDetectMode: settings.speechDetectMode, thinkingLevel: settings.thinkingLevel, standalone: isStandalone(), appShellReady });
   updateReadiness();
 
   if (useOnline()) {
-    // オンラインモード(または自動モードで通信可能)の場合は、重い端末内モデルのロードを待たずに即座に聞き取りを開始可能にする
-    if (settings.autoListen) startListening();
+    // オンラインモード(または自動モードで通信可能)の場合は、重い端末内モデルのロードを待たずに即座に準備完了とする
+    if (settings.speechDetectMode === 'auto' && settings.autoListen) startListening();
     // オフライン用モデルはバックグラウンドで準備(通信切断に備える)
     ensureModels()
       .then((ok) => {
@@ -2142,7 +2357,7 @@ async function boot() {
     setStatus('loading', 'モデル読込中');
     const offlineOk = await ensureModels();
     updateReadiness();
-    if (isReady() && settings.autoListen) await startListening();
+    if (isReady() && settings.speechDetectMode === 'auto' && settings.autoListen) await startListening();
     else if (!offlineOk) showView('settings');
   }
 

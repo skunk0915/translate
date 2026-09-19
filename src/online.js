@@ -58,13 +58,16 @@ async function post(body) {
 }
 
 // 音声 → { lang, transcript, translation, ms }
-export function recognizeAndTranslate(samples, langs, src = null) {
+export function recognizeAndTranslate(samples, langs, src = null, thinkingLevel = null) {
   const body = { audio: encodeWavBase64(samples), langs };
   if (src) body.src = src;
+  if (thinkingLevel) body.thinkingLevel = thinkingLevel;
   return post(body);
 }
 
 // テキスト → { translation, ms }
-export function translateText(text, src, dst) {
-  return post({ text, src, dst });
+export function translateText(text, src, dst, thinkingLevel = null) {
+  const body = { text, src, dst };
+  if (thinkingLevel) body.thinkingLevel = thinkingLevel;
+  return post(body);
 }

@@ -629,7 +629,12 @@ button {
   justify-content: center;
   gap: 4px;
   color: var(--fg-muted);
-  transition: background 0.2s, color 0.2s;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: background 0.2s, color 0.2s, transform 0.1s;
 
   &__ring {
     position: absolute;
@@ -649,12 +654,23 @@ button {
       animation: ring 2s ease-out infinite;
     }
   }
+  &[data-recording='true'] {
+    background: var(--danger, #e5484d);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger, #e5484d) 35%, transparent);
+    transform: scale(0.97);
+
+    .mic__ring {
+      animation: recordRing 1.2s ease-out infinite;
+    }
+  }
   &:disabled {
     opacity: 0.5;
     cursor: default;
   }
   &:active:not(:disabled) {
-    transform: scale(0.98);
+    transform: scale(0.97);
   }
 }
 
@@ -673,6 +689,9 @@ button {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
   user-select: none;
   transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
   outline: none;
@@ -703,7 +722,7 @@ button {
   }
 
   &:active:not(:disabled) {
-    transform: scale(0.98);
+    transform: scale(0.97);
   }
 
   &[data-active='true'] {
@@ -714,6 +733,18 @@ button {
 
     .lang-btn__flag {
       animation: pulse 1.5s ease-in-out infinite;
+    }
+  }
+
+  &[data-recording='true'] {
+    background: var(--danger, #e5484d);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger, #e5484d) 35%, transparent);
+    transform: scale(0.97);
+
+    .lang-btn__flag {
+      animation: pulse 0.8s ease-in-out infinite;
     }
   }
 
@@ -730,6 +761,23 @@ button {
   100% {
     box-shadow: 0 0 0 14px transparent;
   }
+}
+
+@keyframes recordRing {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger, #e5484d) 65%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 18px transparent;
+  }
+}
+
+.field--spacing {
+  margin-top: 14px;
+}
+
+.is-mode-hidden {
+  display: none !important;
 }
 
 // ---- buttons ----
