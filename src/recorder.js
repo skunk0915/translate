@@ -25,6 +25,8 @@ export class PttRecorder {
     this.chunks = [];
     this.isRecording = false;
     this.startTime = 0;
+    this.userStartTime = 0;
+    this.startPromise = null;
   }
 
   async ensureStream() {
@@ -48,39 +50,72 @@ export class PttRecorder {
     return this.stream;
   }
 
-  async start() {
-    if (this.isRecording) return;
-    await this.ensureStream();
-
-    // トラックを有効化
-    this.stream.getAudioTracks().forEach((t) => (t.enabled = true));
-
-    this.chunks = [];
-    this.isRecording = true;
-    this.startTime = Date.now();
-
-    // ソースとプロセッサの接続
-    this.source = this.audioCtx.createMediaStreamSource(this.stream);
-    // 4096 サンプルごとにバッファを収集（約 85ms @ 48kHz）
-    this.processor = this.audioCtx.createScriptProcessor(4096, 1, 1);
-    this.processor.onaudioprocess = (e) => {
-      if (!this.isRecording) return;
-      const input = e.inputBuffer.getChannelData(0);
-      this.chunks.push(new Float32Array(input));
-    };
-
-    this.source.connect(this.processor);
-    this.processor.connect(this.audioCtx.destination);
+  async warmup() {
+    try {
+      await this.ensureStream();
+      if (this.stream) {
+        this.stream.getAudioTracks().forEach((t) => (t.enabled = false));
+      }
+    } catch (_) {}
   }
 
-  async stop() {
+  start(userStartTime = Date.now()) {
+    this.userStartTime = userStartTime;
+    if (this.startPromise) return this.startPromise;
+    this.isRecording = true;
+
+    this.startPromise = (async () => {
+      await this.ensureStream();
+      if (!this.isRecording) return; // 待機中にキャンセルされていた場合
+
+      this.stream.getAudioTracks().forEach((t) => (t.enabled = true));
+      this.chunks = [];
+      this.startTime = Date.now();
+
+      try {
+        this.source?.disconnect();
+        this.processor?.disconnect();
+      } catch (_) {}
+
+      this.source = this.audioCtx.createMediaStreamSource(this.stream);
+      // 2048 サンプル（約42ms @ 48kHz）で高頻度にバッファを回収
+      this.processor = this.audioCtx.createScriptProcessor(2048, 1, 1);
+      this.processor.onaudioprocess = (e) => {
+        if (!this.isRecording) return;
+        const input = e.inputBuffer.getChannelData(0);
+        this.chunks.push(new Float32Array(input));
+      };
+
+      this.source.connect(this.processor);
+      this.processor.connect(this.audioCtx.destination);
+    })();
+
+    return this.startPromise;
+  }
+
+  async stop(userEndTime = Date.now()) {
+    if (!this.isRecording && !this.startPromise) return null;
+
+    if (this.startPromise) {
+      try {
+        await this.startPromise;
+      } catch (_) {}
+      this.startPromise = null;
+    }
+
     if (!this.isRecording) return null;
     this.isRecording = false;
-    const duration = (Date.now() - this.startTime) / 1000;
 
     // トラックをミュート（省電力 & 不要な音声取得防止）
     if (this.stream) {
       this.stream.getAudioTracks().forEach((t) => (t.enabled = false));
+    }
+
+    const pressDuration = this.userStartTime ? (userEndTime - this.userStartTime) / 1000 : 0;
+
+    // もし押下時間は十分なのにバッファがまだ届いていない場合、最初の1コマを待つ
+    if (this.chunks.length === 0 && pressDuration >= 0.1) {
+      await new Promise((r) => setTimeout(r, 60));
     }
 
     // ノード切断
@@ -112,15 +147,18 @@ export class PttRecorder {
     const maxSamples = 16000 * 30;
     const finalAudio = audio16k.length > maxSamples ? audio16k.slice(0, maxSamples) : audio16k;
 
+    const micDuration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
+    const effectiveSeconds = Math.max(pressDuration, micDuration, +(finalAudio.length / 16000));
+
     return {
       audio: finalAudio,
-      seconds: +duration.toFixed(1),
+      seconds: +effectiveSeconds.toFixed(2),
     };
   }
 
   cancel() {
-    if (!this.isRecording) return;
     this.isRecording = false;
+    this.startPromise = null;
     if (this.stream) {
       this.stream.getAudioTracks().forEach((t) => (t.enabled = false));
     }

@@ -158,6 +158,9 @@ function showView(name) {
     if (b.dataset.viewTarget === name) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
+  if (name === 'talk' && settings.speechDetectMode === 'manual') {
+    pttRecorder.warmup().catch(() => {});
+  }
   if (name === 'history') renderHistory();
   if (name === 'settings') {
     renderMode();
@@ -600,6 +603,7 @@ const pttRecorder = new PttRecorder();
 let isPttRecording = false;
 let pttActiveMode = null;
 let pttPointerId = null;
+let pttPressStartTime = 0;
 
 function renderVoiceControls() {
   const la = LANGUAGES[settings.langA];
@@ -823,6 +827,7 @@ let wasListeningBeforeHidden = false;
 
 // ---- 聞き取り ----
 async function startListening() {
+  if (settings.speechDetectMode !== 'auto') return false;
   if (listening) return true;
   if (!isReady()) {
     updateReadiness();
@@ -1709,6 +1714,9 @@ el.speechDetectMode.addEventListener('change', async () => {
   settings.speechDetectMode = el.speechDetectMode.value;
   await saveSettings();
   updateSpeechDetectModeUI();
+  if (settings.speechDetectMode === 'manual') {
+    pttRecorder.warmup().catch(() => {});
+  }
   log.info('音声入力方式変更', { speechDetectMode: settings.speechDetectMode });
 });
 
@@ -1732,8 +1740,15 @@ function updateSpeechDetectModeUI() {
       ? 'マイク（自動認識）または左右の言語ボタンを長押しできます。'
       : 'ボタンを押す必要はありません。置いたままで会話できます。';
   }
-  if (isManual && listening) {
-    stopListening().catch(() => {});
+  if (isManual) {
+    if (listening) {
+      stopListening().catch(() => {});
+    }
+    if (vad) {
+      vad.stopAllTracks?.();
+      vad.destroy?.().catch(() => {});
+      vad = null;
+    }
   }
   renderVoiceControls();
 }
@@ -2139,35 +2154,38 @@ async function startPtt(mode, targetBtn, pointerId = null) {
     return;
   }
 
-  try {
-    isPttRecording = true;
-    pttActiveMode = mode;
-    pttPointerId = pointerId;
+  pttPressStartTime = Date.now();
+  isPttRecording = true;
+  pttActiveMode = mode;
+  pttPointerId = pointerId;
 
-    if (pointerId !== null && targetBtn.setPointerCapture) {
-      try {
-        targetBtn.setPointerCapture(pointerId);
-      } catch (_) {}
-    }
-
+  if (pointerId !== null && targetBtn.setPointerCapture) {
     try {
-      navigator.vibrate?.(35);
+      targetBtn.setPointerCapture(pointerId);
     } catch (_) {}
+  }
 
-    await pttRecorder.start();
+  try {
+    navigator.vibrate?.(35);
+  } catch (_) {}
 
-    renderVoiceControls();
-    const langA = LANGUAGES[settings.langA];
-    const langB = LANGUAGES[settings.langB];
-    const targetName = mode === 'langA' ? (langA?.name || '言語A') : mode === 'langB' ? (langB?.name || '言語B') : '自動認識';
-    setStatus('hearing', `${targetName} 録音中…`);
-    log.info('PTT 録音開始', { mode });
+  // 0msで即座にUIを録音中状態にし、ユーザーに視覚的・触覚的フィードバックを返す
+  renderVoiceControls();
+  const langA = LANGUAGES[settings.langA];
+  const langB = LANGUAGES[settings.langB];
+  const targetName = mode === 'langA' ? (langA?.name || '言語A') : mode === 'langB' ? (langB?.name || '言語B') : '自動認識';
+  setStatus('hearing', `${targetName} 録音中…`);
+  log.info('PTT 録音開始', { mode });
+
+  try {
+    await pttRecorder.start(pttPressStartTime);
   } catch (e) {
     log.error('PTT 録音開始に失敗', e);
     isPttRecording = false;
     pttActiveMode = null;
     pttPointerId = null;
     renderVoiceControls();
+    setStatus('idle');
     toast(`マイク開始に失敗しました: ${e.message}`);
   }
 }
@@ -2175,6 +2193,8 @@ async function startPtt(mode, targetBtn, pointerId = null) {
 async function stopPtt(targetBtn) {
   if (!isPttRecording) return;
   const mode = pttActiveMode;
+  const pressEndTime = Date.now();
+  const pressDuration = (pressEndTime - pttPressStartTime) / 1000;
   isPttRecording = false;
   pttActiveMode = null;
 
@@ -2189,17 +2209,20 @@ async function stopPtt(targetBtn) {
     navigator.vibrate?.(25);
   } catch (_) {}
 
-  const res = await pttRecorder.stop();
+  const res = await pttRecorder.stop(pressEndTime);
   renderVoiceControls();
 
-  if (!res || !res.audio || res.seconds < 0.25) {
-    log.info('PTT 音声が短すぎるためスキップ', { seconds: res?.seconds });
+  const effectiveSeconds = Math.max(res?.seconds || 0, pressDuration);
+
+  // 0.15 秒未満かつ十分な音声データがない場合のみ「短すぎます」とする
+  if (!res || !res.audio || effectiveSeconds < 0.15) {
+    log.info('PTT 音声が短すぎるためスキップ', { seconds: effectiveSeconds, pressDuration, recordedSeconds: res?.seconds });
     toast('録音時間が短すぎます。ボタンを長押ししながら話してください');
     setStatus('idle');
     return;
   }
 
-  log.info('PTT 録音完了・翻訳キューへ', { seconds: res.seconds, mode });
+  log.info('PTT 録音完了・翻訳キューへ', { seconds: res.seconds, mode, effectiveSeconds });
   enqueue({ kind: 'audio', audio: res.audio, seconds: res.seconds, voiceMode: mode });
 }
 
@@ -2225,6 +2248,10 @@ function bindVoiceButton(btn, mode) {
     if (e.button !== 0) return; // 主ボタン(左クリック/タッチ)のみ
     if (settings.speechDetectMode === 'manual') {
       e.preventDefault();
+      // ユーザー操作の同期コールバック内で AudioContext を resume（iOS Safari対策）
+      if (pttRecorder.audioCtx && pttRecorder.audioCtx.state === 'suspended') {
+        pttRecorder.audioCtx.resume().catch(() => {});
+      }
       startPtt(mode, btn, e.pointerId);
     }
   });
@@ -2238,7 +2265,13 @@ function bindVoiceButton(btn, mode) {
 
   btn.addEventListener('pointercancel', (e) => {
     if (settings.speechDetectMode === 'manual') {
-      cancelPtt(btn);
+      // スマホのジェスチャー誤判定などで cancel が来ても、既に0.15秒以上押されていれば録音完了として救済
+      const pressDuration = (Date.now() - pttPressStartTime) / 1000;
+      if (isPttRecording && pressDuration >= 0.15) {
+        stopPtt(btn);
+      } else {
+        cancelPtt(btn);
+      }
     }
   });
 
@@ -2341,17 +2374,8 @@ async function boot() {
   updateReadiness();
 
   if (useOnline()) {
-    // オンラインモード(または自動モードで通信可能)の場合は、重い端末内モデルのロードを待たずに即座に準備完了とする
+    // オンラインモード(または自動モードで通信可能)の場合は、重い端末内モデルのロードを行わず即座に準備完了とする
     if (settings.speechDetectMode === 'auto' && settings.autoListen) startListening();
-    // オフライン用モデルはバックグラウンドで準備(通信切断に備える)
-    ensureModels()
-      .then((ok) => {
-        updateReadiness();
-        log.info('オフラインモデルの事前読込完了', { ok });
-      })
-      .catch((e) => {
-        log.warn('オフラインモデルの事前読込に失敗', e);
-      });
   } else {
     // オフライン翻訳時はモデルが必須のため読み込みを待つ
     setStatus('loading', 'モデル読込中');
@@ -2365,6 +2389,10 @@ async function boot() {
   log.info('保存容量', { ...(await storageEstimate()), persisted: await navigator.storage?.persisted?.() });
   if (currentRequired().some((m) => cachedKeys.get(m.key))) {
     log.info('保存領域の永続化', { persisted: await requestPersistentStorage() });
+  }
+
+  if (settings.speechDetectMode === 'manual') {
+    pttRecorder.warmup().catch(() => {});
   }
 }
 
