@@ -20,7 +20,7 @@ const DEFAULTS = {
   whisperSize: 'base',
   device: 'wasm',
   autoListen: true,
-  autoSpeak: true,
+  autoSpeak: false,
   rate: 1,
   voices: {}, // lang -> voiceURI
   typedLang: 'A',
@@ -33,6 +33,7 @@ const settings = { ...DEFAULTS };
 async function loadSettings() {
   const saved = await kv.get('settings');
   if (saved) Object.assign(settings, saved);
+  settings.autoSpeak = false; // 自動読み上げは既定でオフ（スピーカーボタン押下時のみ再生）
   if (!LANGUAGES[settings.langA]) settings.langA = DEFAULTS.langA;
   if (!LANGUAGES[settings.langB]) settings.langB = DEFAULTS.langB;
   if (!['tiny', 'base', 'small'].includes(settings.whisperSize)) settings.whisperSize = DEFAULTS.whisperSize;
@@ -788,7 +789,7 @@ async function handleJob(job) {
     entry.id = await history.add(entry);
     pendingEl.remove();
     appendBubble(entry);
-    if (settings.autoSpeak) await speakEntry(entry);
+    if (settings.autoSpeak) speakEntry(entry).catch(() => {});
   } catch (e) {
     pendingEl.remove();
     log.error('会話処理に失敗', e);
@@ -1275,7 +1276,7 @@ function bubbleEl(entry) {
       closeEditor();
       toast('再翻訳しました');
       log.info('会話文を編集・再翻訳', { id: entry.id, len: newText.length });
-      if (settings.autoSpeak) await speakEntry(entry);
+      if (settings.autoSpeak) speakEntry(entry).catch(() => {});
     } catch (e) {
       log.error('再翻訳に失敗', e);
       dstEl.textContent = prevDst;
@@ -1471,7 +1472,7 @@ async function renderHistory() {
         log.info('別言語への翻訳を追加', { id: entry.id, targetLang, len: translatedText.length });
 
         if (settings.autoSpeak) {
-          await speakText(translatedText, targetLang);
+          speakText(translatedText, targetLang).catch(() => {});
         }
       } catch (e) {
         log.error('別言語への翻訳に失敗', e);
@@ -1593,7 +1594,7 @@ async function renderHistory() {
           if (bTime) bTime.textContent = timeFmt(entry.ts);
         }
 
-        if (settings.autoSpeak) await speakEntry(entry);
+        if (settings.autoSpeak) speakEntry(entry).catch(() => {});
       } catch (e) {
         log.error('履歴の再翻訳に失敗', e);
         dstEl.textContent = prevDst;
@@ -2128,6 +2129,7 @@ async function toggleVoiceListening(mode) {
 // ---- 手動録音 (プッシュ・トゥ・トーク) 制御 ----
 async function startPtt(mode, targetBtn, pointerId = null) {
   if (isPttRecording) return;
+  tts.stop();
   if (!isReady()) {
     updateReadiness();
     showView('settings');
