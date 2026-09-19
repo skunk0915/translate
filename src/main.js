@@ -558,14 +558,61 @@ async function translateOffline(srcLang, dstLang, text) {
   return { text: curText, steps, ms: Math.round(performance.now() - t0) };
 }
 
+async function translateTextGeneral(text, srcLang, dstLang) {
+  if (useOnline()) {
+    const r = await online.translateText(text, srcLang, dstLang);
+    return (r.translation ?? '').trim();
+  } else {
+    const route = routeFor(srcLang, dstLang);
+    if (!route) {
+      throw new Error(
+        `${LANGUAGES[srcLang]?.name ?? srcLang} → ${LANGUAGES[dstLang]?.name ?? dstLang} はオフラインでは翻訳できません。オンラインモードを使ってください。`,
+      );
+    }
+    const t = await translateOffline(srcLang, dstLang, text);
+    return t.text;
+  }
+}
+
 // ------------------------------------------------------------
 // 会話処理
 // ------------------------------------------------------------
 let vad = null;
 let listening = false;
+let voiceMode = 'auto'; // 'auto' | 'langA' | 'langB'
 let busy = false;
 const queue = [];
 let wakeLock = null;
+
+function renderVoiceControls() {
+  const la = LANGUAGES[settings.langA];
+  const lb = LANGUAGES[settings.langB];
+  if (el.langAFlag && la) el.langAFlag.textContent = la.flag;
+  if (el.langAName && la) el.langAName.textContent = la.name;
+  if (el.langBFlag && lb) el.langBFlag.textContent = lb.flag;
+  if (el.langBName && lb) el.langBName.textContent = lb.name;
+
+  const disabled = settings.langA === settings.langB || el.micButton.disabled;
+  if (el.langABtn) {
+    el.langABtn.disabled = disabled;
+    const active = listening && voiceMode === 'langA';
+    el.langABtn.dataset.active = active ? 'true' : 'false';
+    el.langABtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    el.langABtn.setAttribute('aria-label', `${la?.name ?? '言語A'}で音声認識${active ? '（動作中）' : ''}`);
+  }
+  if (el.langBBtn) {
+    el.langBBtn.disabled = disabled;
+    const active = listening && voiceMode === 'langB';
+    el.langBBtn.dataset.active = active ? 'true' : 'false';
+    el.langBBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    el.langBBtn.setAttribute('aria-label', `${lb?.name ?? '言語B'}で音声認識${active ? '（動作中）' : ''}`);
+  }
+
+  const micActive = listening && voiceMode === 'auto';
+  el.micButton.dataset.active = micActive ? 'true' : 'false';
+  el.micButton.setAttribute('aria-pressed', micActive ? 'true' : 'false');
+  el.micLabel.textContent = micActive ? '自動認識 動作中' : '自動認識 停止中';
+}
 
 const otherLang = (l) => (l === settings.langA ? settings.langB : settings.langA);
 
@@ -701,7 +748,7 @@ async function handleJob(job) {
   }
 }
 
-async function speakEntry(entry) {
+async function speakText(text, langCode) {
   if (!tts.ttsSupported) {
     toast('この端末は読み上げに対応していません');
     return;
@@ -710,7 +757,8 @@ async function speakEntry(entry) {
   if (wasListening) await vad?.pause(); // 自分の読み上げをマイクが拾わないように止める
   setStatus('speaking');
   try {
-    await tts.speak(entry.dstText, LANGUAGES[entry.dstLang].tts, { voiceURI: settings.voices[entry.dstLang], rate: settings.rate });
+    const langInfo = LANGUAGES[langCode] ?? { tts: langCode };
+    await tts.speak(text, langInfo.tts, { voiceURI: settings.voices[langCode], rate: settings.rate });
   } catch (e) {
     log.warn('読み上げ失敗', e);
     toast(e.message);
@@ -721,6 +769,10 @@ async function speakEntry(entry) {
       setStatus('listening');
     }
   }
+}
+
+async function speakEntry(entry) {
+  return speakText(entry.dstText, entry.dstLang);
 }
 
 let wasListeningBeforeHidden = false;
@@ -953,6 +1005,77 @@ function bindLongPress(element, onLongPress, options = {}) {
   element.addEventListener('keydown', onKeyDown);
 }
 
+function renderBubbleExtras(container, entry) {
+  if (!container) return;
+  container.innerHTML = '';
+  const extras = entry.extraTranslations ?? [];
+  if (extras.length === 0) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  for (const extra of extras) {
+    const langInfo = LANGUAGES[extra.lang] ?? { flag: '🌐', name: extra.lang };
+    const item = document.createElement('div');
+    item.className = 'bubble__extra';
+    item.innerHTML = `
+      <div class="bubble__extra-head">
+        <span class="bubble__extra-lang">${langInfo.flag} ${langInfo.name}</span>
+        <button class="btn btn--ghost btn--small bubble__extra-speak" type="button" aria-label="${langInfo.name}を読み上げ" title="読み上げ">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
+        </button>
+      </div>
+      <p class="bubble__extra-text"></p>
+    `;
+    item.querySelector('.bubble__extra-text').textContent = extra.text;
+    item.querySelector('.bubble__extra-speak').addEventListener('click', () => speakText(extra.text, extra.lang));
+    container.appendChild(item);
+  }
+}
+
+function renderHistoryExtras(container, entry, onUpdate) {
+  if (!container) return;
+  container.innerHTML = '';
+  const extras = entry.extraTranslations ?? [];
+  if (extras.length === 0) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  for (let i = 0; i < extras.length; i++) {
+    const extra = extras[i];
+    const langInfo = LANGUAGES[extra.lang] ?? { flag: '🌐', name: extra.lang };
+    const item = document.createElement('div');
+    item.className = 'history__extra';
+    item.innerHTML = `
+      <div class="history__extra-head">
+        <span class="history__extra-lang">${langInfo.flag} ${langInfo.name}</span>
+        <div class="history__extra-actions">
+          <button class="btn btn--ghost btn--small history__extra-btn" type="button" data-action="speak-extra" aria-label="${langInfo.name}を読み上げ" title="読み上げ">
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
+            <span>読み上げ</span>
+          </button>
+          <button class="btn btn--ghost btn--small btn--danger history__extra-btn" type="button" data-action="delete-extra" aria-label="${langInfo.name}の翻訳を削除" title="削除">
+            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+      </div>
+      <p class="history__extra-text"></p>
+    `;
+    item.querySelector('.history__extra-text').textContent = extra.text;
+    item.querySelector('[data-action="speak-extra"]').addEventListener('click', () => speakText(extra.text, extra.lang));
+    item.querySelector('[data-action="delete-extra"]').addEventListener('click', async () => {
+      if (!confirm(`${langInfo.name}の翻訳を削除します。よろしいですか？`)) return;
+      extras.splice(i, 1);
+      entry.extraTranslations = extras;
+      await history.update(entry);
+      renderHistoryExtras(container, entry, onUpdate);
+      onUpdate?.();
+      toast(`${langInfo.name}の翻訳を削除しました`);
+    });
+    container.appendChild(item);
+  }
+}
 
 function bubbleEl(entry) {
   const side = entry.srcLang === settings.langA ? 'a' : 'b';
@@ -974,6 +1097,7 @@ function bubbleEl(entry) {
       </div>
     </div>
     <p class="bubble__dst" tabindex="0" role="button" aria-label="長押しで原文を再編集" title="長押しで原文を再編集"></p>
+    <div class="bubble__extras"></div>
     <div class="bubble__actions">
       <button class="btn btn--ghost btn--small" type="button" data-action="edit">
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -988,6 +1112,7 @@ function bubbleEl(entry) {
   const srcRow = art.querySelector('.bubble__src-row');
   const srcEl = art.querySelector('.bubble__src');
   const dstEl = art.querySelector('.bubble__dst');
+  const extrasContainer = art.querySelector('.bubble__extras');
   const editor = art.querySelector('.bubble__editor');
   const editInput = art.querySelector('.bubble__edit-input');
   const retranslateBtn = art.querySelector('[data-action="retranslate"]');
@@ -997,6 +1122,7 @@ function bubbleEl(entry) {
 
   srcEl.textContent = entry.srcText;
   dstEl.textContent = entry.dstText;
+  renderBubbleExtras(extrasContainer, entry);
 
   const openEditor = (from = 'tap') => {
     srcRow.hidden = true;
@@ -1027,8 +1153,24 @@ function bubbleEl(entry) {
   });
   editBtn.addEventListener('click', () => openEditor('button'));
   cancelBtn.addEventListener('click', closeEditor);
-  bindLongPress(dstEl, () => openEditor('longpress-dst'), { pressingClass: 'bubble__dst--pressing' });
-  bindLongPress(srcEl, () => openEditor('longpress-src'), { pressingClass: 'bubble__src--pressing' });
+
+  bindLongPress(art, () => openEditor('longpress'), {
+    ignoreSelector: 'button, textarea, input, select, a',
+    onStart: (e) => {
+      if (e.target.closest('.bubble__dst')) {
+        dstEl.classList.add('bubble__dst--pressing');
+      } else if (e.target.closest('.bubble__src')) {
+        srcEl.classList.add('bubble__src--pressing');
+      } else {
+        art.classList.add('bubble--pressing');
+      }
+    },
+    onEnd: () => {
+      dstEl.classList.remove('bubble__dst--pressing');
+      srcEl.classList.remove('bubble__src--pressing');
+      art.classList.remove('bubble--pressing');
+    },
+  });
 
   editInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -1050,20 +1192,23 @@ function bubbleEl(entry) {
     const prevDst = entry.dstText;
     dstEl.textContent = '再翻訳中…';
     try {
-      let dstText;
-      if (useOnline()) {
-        const r = await online.translateText(newText, entry.srcLang, entry.dstLang);
-        dstText = (r.translation ?? '').trim();
-      } else {
-        const t = await translateOffline(entry.srcLang, entry.dstLang, newText);
-        dstText = t.text;
-      }
+      const dstText = await translateTextGeneral(newText, entry.srcLang, entry.dstLang);
       entry.srcText = newText;
       entry.dstText = dstText;
+      if (entry.extraTranslations && entry.extraTranslations.length > 0) {
+        for (const extra of entry.extraTranslations) {
+          try {
+            extra.text = await translateTextGeneral(newText, entry.srcLang, extra.lang);
+          } catch (err) {
+            log.warn('追加言語の再翻訳失敗', err);
+          }
+        }
+      }
       entry.ts = Date.now();
       await history.update(entry);
       srcEl.textContent = entry.srcText;
       dstEl.textContent = entry.dstText;
+      renderBubbleExtras(extrasContainer, entry);
       const bTime = art.querySelector('.bubble__meta time');
       if (bTime) bTime.textContent = timeFmt(entry.ts);
 
@@ -1072,6 +1217,8 @@ function bubbleEl(entry) {
       if (historyLi) {
         historyLi.querySelector('.history__src').textContent = entry.srcText;
         historyLi.querySelector('.history__dst').textContent = entry.dstText;
+        const hExtras = historyLi.querySelector('.history__extras');
+        if (hExtras) renderHistoryExtras(hExtras, entry);
         const hTime = historyLi.querySelector('.history__meta time');
         if (hTime) hTime.textContent = dateFmt(entry.ts);
       }
@@ -1150,7 +1297,23 @@ async function renderHistory() {
         </div>
       </div>
       <p class="history__dst" tabindex="0" role="button" aria-label="長押しで原文を再編集" title="長押しで原文を再編集"></p>
+      <div class="history__extras"></div>
+      <div class="history__translate-form" hidden>
+        <div class="history__translate-form-row">
+          <label class="field history__translate-field">
+            <span class="field__label sr-only">翻訳先言語</span>
+            <select class="select select--small history__translate-select" aria-label="翻訳先言語"></select>
+          </label>
+          <button class="btn btn--small" type="button" data-action="confirm-translate-other">翻訳</button>
+          <button class="btn btn--ghost btn--small" type="button" data-action="cancel-translate-other">閉じる</button>
+        </div>
+        <div class="history__translate-status" hidden></div>
+      </div>
       <div class="history__actions">
+        <button class="btn btn--ghost btn--small" type="button" data-action="translate-other">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="m12.87 15.07-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7 1.62-4.33L19.12 17h-3.24z"/></svg>
+          違う言語へ翻訳
+        </button>
         <button class="btn btn--ghost btn--small" type="button" data-action="edit">
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
           編集
@@ -1169,6 +1332,13 @@ async function renderHistory() {
     const srcEl = li.querySelector('.history__src');
     const dstEl = li.querySelector('.history__dst');
     const timeEl = li.querySelector('.history__meta time');
+    const extrasContainer = li.querySelector('.history__extras');
+    const translateForm = li.querySelector('.history__translate-form');
+    const translateSelect = li.querySelector('.history__translate-select');
+    const confirmTranslateBtn = li.querySelector('[data-action="confirm-translate-other"]');
+    const cancelTranslateBtn = li.querySelector('[data-action="cancel-translate-other"]');
+    const translateStatus = li.querySelector('.history__translate-status');
+    const translateOtherBtn = li.querySelector('[data-action="translate-other"]');
     const editor = li.querySelector('.history__editor');
     const editInput = li.querySelector('.history__edit-input');
     const retranslateBtn = li.querySelector('[data-action="retranslate"]');
@@ -1179,6 +1349,91 @@ async function renderHistory() {
 
     srcEl.textContent = entry.srcText;
     dstEl.textContent = entry.dstText;
+
+    const syncBubbleExtras = () => {
+      const bubble = el.conversation.querySelector(`.bubble[data-id="${entry.id}"]`);
+      if (bubble) {
+        renderBubbleExtras(bubble.querySelector('.bubble__extras'), entry);
+      }
+    };
+
+    renderHistoryExtras(extrasContainer, entry, syncBubbleExtras);
+
+    const updateSelectOptions = () => {
+      translateSelect.innerHTML = '';
+      const usedLangs = new Set([entry.srcLang, entry.dstLang, ...(entry.extraTranslations ?? []).map((e) => e.lang)]);
+      const available = Object.entries(LANGUAGES).filter(([code]) => !usedLangs.has(code));
+      if (available.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'すべての言語に翻訳済みです';
+        translateSelect.appendChild(opt);
+        confirmTranslateBtn.disabled = true;
+        return;
+      }
+      confirmTranslateBtn.disabled = false;
+      for (const [code, info] of available) {
+        const opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = `${info.flag} ${info.name}`;
+        translateSelect.appendChild(opt);
+      }
+    };
+
+    translateOtherBtn.addEventListener('click', () => {
+      if (!translateForm.hidden) {
+        translateForm.hidden = true;
+        return;
+      }
+      updateSelectOptions();
+      translateForm.hidden = false;
+      translateStatus.hidden = true;
+      translateStatus.textContent = '';
+      translateSelect.focus();
+    });
+
+    cancelTranslateBtn.addEventListener('click', () => {
+      translateForm.hidden = true;
+    });
+
+    confirmTranslateBtn.addEventListener('click', async () => {
+      const targetLang = translateSelect.value;
+      if (!targetLang) return;
+      const targetInfo = LANGUAGES[targetLang] ?? { name: targetLang, flag: '' };
+      confirmTranslateBtn.disabled = true;
+      cancelTranslateBtn.disabled = true;
+      translateSelect.disabled = true;
+      translateStatus.hidden = false;
+      translateStatus.textContent = `${targetInfo.flag} ${targetInfo.name} に翻訳中…`;
+
+      try {
+        const translatedText = await translateTextGeneral(entry.srcText, entry.srcLang, targetLang);
+        if (!entry.extraTranslations) entry.extraTranslations = [];
+        entry.extraTranslations.push({
+          lang: targetLang,
+          text: translatedText,
+          ts: Date.now(),
+        });
+        await history.update(entry);
+        renderHistoryExtras(extrasContainer, entry, syncBubbleExtras);
+        syncBubbleExtras();
+        translateForm.hidden = true;
+        toast(`${targetInfo.name}の翻訳を追加しました`);
+        log.info('別言語への翻訳を追加', { id: entry.id, targetLang, len: translatedText.length });
+
+        if (settings.autoSpeak) {
+          await speakText(translatedText, targetLang);
+        }
+      } catch (e) {
+        log.error('別言語への翻訳に失敗', e);
+        translateStatus.textContent = `翻訳エラー: ${e.message}`;
+        toast(`翻訳に失敗しました: ${e.message}`);
+      } finally {
+        confirmTranslateBtn.disabled = false;
+        cancelTranslateBtn.disabled = false;
+        translateSelect.disabled = false;
+      }
+    });
 
     const openEditor = (from = 'tap') => {
       srcRow.hidden = true;
@@ -1256,20 +1511,23 @@ async function renderHistory() {
       const prevDst = entry.dstText;
       dstEl.textContent = '再翻訳中…';
       try {
-        let dstText;
-        if (useOnline()) {
-          const r = await online.translateText(newText, entry.srcLang, entry.dstLang);
-          dstText = (r.translation ?? '').trim();
-        } else {
-          const t = await translateOffline(entry.srcLang, entry.dstLang, newText);
-          dstText = t.text;
-        }
+        const dstText = await translateTextGeneral(newText, entry.srcLang, entry.dstLang);
         entry.srcText = newText;
         entry.dstText = dstText;
+        if (entry.extraTranslations && entry.extraTranslations.length > 0) {
+          for (const extra of entry.extraTranslations) {
+            try {
+              extra.text = await translateTextGeneral(newText, entry.srcLang, extra.lang);
+            } catch (err) {
+              log.warn('追加言語の再翻訳失敗', err);
+            }
+          }
+        }
         entry.ts = Date.now();
         await history.update(entry);
         srcEl.textContent = entry.srcText;
         dstEl.textContent = entry.dstText;
+        renderHistoryExtras(extrasContainer, entry, syncBubbleExtras);
         timeEl.textContent = dateFmt(entry.ts);
         closeEditor();
         toast('再翻訳しました');
@@ -1280,6 +1538,8 @@ async function renderHistory() {
         if (bubble) {
           bubble.querySelector('.bubble__src').textContent = entry.srcText;
           bubble.querySelector('.bubble__dst').textContent = entry.dstText;
+          const bExtras = bubble.querySelector('.bubble__extras');
+          if (bExtras) renderBubbleExtras(bExtras, entry);
           const bTime = bubble.querySelector('.bubble__meta time');
           if (bTime) bTime.textContent = timeFmt(entry.ts);
         }
