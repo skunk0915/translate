@@ -77,6 +77,12 @@ const el = {
   textSend: $('textSend'),
   micButton: $('micButton'),
   micLabel: $('micLabel'),
+  langABtn: $('langABtn'),
+  langBBtn: $('langBBtn'),
+  langAFlag: $('langAFlag'),
+  langAName: $('langAName'),
+  langBFlag: $('langBFlag'),
+  langBName: $('langBName'),
   stopSpeak: $('stopSpeak'),
   autoSpeakToggle: $('autoSpeakToggle'),
   historyList: $('historyList'),
@@ -359,6 +365,7 @@ function updateReadiness() {
     el.modelBanner.hidden = true;
     if (!listening && !busy) setStatus('idle');
     el.micButton.disabled = settings.langA === settings.langB;
+    renderVoiceControls();
     return;
   }
   if (!supported) {
@@ -391,6 +398,7 @@ function updateReadiness() {
     if (!listening && !busy) setStatus('idle');
   }
   el.micButton.disabled = !supported;
+  renderVoiceControls();
 }
 
 // 保存済み(キャッシュ済み)のモデルをすべて読み込む。未保存のものは download=true のときだけ取得する。
@@ -605,12 +613,13 @@ async function handleJob(job) {
       // ---- オンライン: 音声はサーバーで 言語判定+文字起こし+翻訳 を一度に行う ----
       setStatus('translating', 'オンライン翻訳中');
       if (job.kind === 'audio') {
-        const r = await online.recognizeAndTranslate(job.audio, [settings.langA, settings.langB]);
+        const fixedSrc = job.voiceMode === 'langA' ? settings.langA : job.voiceMode === 'langB' ? settings.langB : null;
+        const r = await online.recognizeAndTranslate(job.audio, [settings.langA, settings.langB], fixedSrc);
         srcLang = r.lang;
         srcText = (r.transcript ?? '').trim();
         dstText = (r.translation ?? '').trim();
         translateMs = r.ms;
-        log.info('オンライン音声翻訳', { lang: srcLang, text: srcText, ms: r.ms, sec: job.seconds });
+        log.info('オンライン音声翻訳', { lang: srcLang, text: srcText, ms: r.ms, sec: job.seconds, voiceMode: job.voiceMode, fixedSrc });
         if (isNoise(srcText) || !dstText) {
           pendingEl.remove();
           log.info('無音/ノイズとして破棄', { text: srcText });
@@ -630,13 +639,20 @@ async function handleJob(job) {
       // ---- オフライン: Whisper → Marian(必要なら英語経由) ----
       if (job.kind === 'audio') {
         setStatus('transcribing');
-        const langs = [settings.langA, settings.langB].map((c) => ({ code: c, whisper: LANGUAGES[c].whisper, post: LANGUAGES[c].post }));
+        let langs;
+        if (job.voiceMode === 'langA') {
+          langs = [{ code: settings.langA, whisper: LANGUAGES[settings.langA].whisper, post: LANGUAGES[settings.langA].post }];
+        } else if (job.voiceMode === 'langB') {
+          langs = [{ code: settings.langB, whisper: LANGUAGES[settings.langB].whisper, post: LANGUAGES[settings.langB].post }];
+        } else {
+          langs = [settings.langA, settings.langB].map((c) => ({ code: c, whisper: LANGUAGES[c].whisper, post: LANGUAGES[c].post }));
+        }
         const r = await call({ type: 'transcribe', audio: job.audio, langs }, [job.audio.buffer]);
         srcLang = r.lang;
         srcText = r.text;
         detectMs = r.detectMs;
         transcribeMs = r.transcribeMs;
-        log.info('文字起こし', { lang: srcLang, text: srcText, detectMs, transcribeMs, sec: job.seconds });
+        log.info('文字起こし', { lang: srcLang, text: srcText, detectMs, transcribeMs, sec: job.seconds, voiceMode: job.voiceMode });
         if (isNoise(srcText)) {
           pendingEl.remove();
           log.info('無音/ノイズとして破棄', { text: srcText });
@@ -728,10 +744,10 @@ async function startListening() {
         },
         onSpeechEnd: (audio) => {
           const seconds = +(audio.length / 16000).toFixed(1);
-          log.info('発話区間を検出', { seconds });
+          log.info('発話区間を検出', { seconds, voiceMode });
           // Whisper の1ウィンドウ(30秒)を超える分は切り捨てる
           const clipped = audio.length > 16000 * 30 ? audio.slice(0, 16000 * 30) : audio;
-          enqueue({ kind: 'audio', audio: clipped, seconds });
+          enqueue({ kind: 'audio', audio: clipped, seconds, voiceMode });
         },
         onMisfire: () => {
           if (listening && !busy) setStatus('listening');
@@ -745,11 +761,9 @@ async function startListening() {
     await vad.start();
     listening = true;
     el.micBanner.hidden = true;
-    el.micButton.dataset.active = 'true';
-    el.micButton.setAttribute('aria-pressed', 'true');
-    el.micLabel.textContent = '自動聞き取り 動作中';
+    renderVoiceControls();
     setStatus('listening');
-    log.info('聞き取り開始');
+    log.info('聞き取り開始', { voiceMode });
     acquireWakeLock();
     return true;
   } catch (e) {
@@ -788,9 +802,7 @@ async function stopListening({ keepIntent = false } = {}) {
       }
     }
   } catch (_) {}
-  el.micButton.dataset.active = 'false';
-  el.micButton.setAttribute('aria-pressed', 'false');
-  el.micLabel.textContent = '自動聞き取り 停止中';
+  renderVoiceControls();
   if (!busy) setStatus('idle');
   log.info('聞き取り停止');
   releaseWakeLock();
@@ -1331,19 +1343,22 @@ function renderPair() {
   el.voiceBLabel.textContent = `${LANGUAGES[settings.langB].name} の声`;
   const a = settings.langA, b = settings.langB;
   const A = LANGUAGES[a], B = LANGUAGES[b];
-  if (a === b) el.pairNote.textContent = '同じ言語同士は選べません。';
-  else if (!pairSupported(a, b)) el.pairNote.textContent = 'この組み合わせはオフライン未対応です（オンラインモードでは使えます）。';
-  else {
+  if (a === b) {
+    el.pairNote.textContent = '同じ言語同士は選べません。';
+    el.pairNote.className = 'note';
+  } else if (!pairSupported(a, b)) {
+    el.pairNote.textContent = 'この組み合わせはオフライン未対応です（オンラインモードでは使えます）。';
+    el.pairNote.className = 'note';
+  } else {
     const missing = [];
     if (!directionSupported(a, b)) missing.push(`${A.name} → ${B.name}`);
     if (!directionSupported(b, a)) missing.push(`${B.name} → ${A.name}`);
     const pivot = (routeFor(a, b)?.length === 2 || routeFor(b, a)?.length === 2) ? 'オフラインでは英語を経由して翻訳します。' : '';
     el.pairNote.textContent = missing.length ? `オフラインでは ${missing.join('、')} は翻訳できません（オンラインモードでは可能）。${pivot}` : pivot;
     el.pairNote.className = missing.length ? 'note' : 'note note--info';
-    return;
   }
-  el.pairNote.className = 'note';
   renderTypedLangControl();
+  renderVoiceControls();
 }
 
 async function onPairChanged() {
@@ -1750,7 +1765,22 @@ window.addEventListener('offline', async () => {
 // ------------------------------------------------------------
 // その他 UI
 // ------------------------------------------------------------
-el.micButton.addEventListener('click', () => (listening ? stopListening() : startListening()));
+async function toggleVoiceListening(mode) {
+  if (listening && voiceMode === mode) {
+    await stopListening();
+    return;
+  }
+  voiceMode = mode;
+  if (!listening) {
+    await startListening();
+  } else {
+    renderVoiceControls();
+  }
+}
+
+el.micButton.addEventListener('click', () => toggleVoiceListening('auto'));
+el.langABtn?.addEventListener('click', () => toggleVoiceListening('langA'));
+el.langBBtn?.addEventListener('click', () => toggleVoiceListening('langB'));
 el.micBannerAction.addEventListener('click', () => startListening());
 el.stopSpeak.addEventListener('click', () => tts.stop());
 document.querySelectorAll('.tabbar__item').forEach((b) => b.addEventListener('click', () => showView(b.dataset.viewTarget)));

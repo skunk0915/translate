@@ -58,8 +58,10 @@ async function post(body) {
 }
 
 // 音声 → { lang, transcript, translation, ms }
-export function recognizeAndTranslate(samples, langs) {
-  return post({ audio: encodeWavBase64(samples), langs });
+export function recognizeAndTranslate(samples, langs, src = null) {
+  const body = { audio: encodeWavBase64(samples), langs };
+  if (src) body.src = src;
+  return post(body);
 }
 
 // テキスト → { translation, ms }

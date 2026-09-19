@@ -190,19 +190,26 @@ async function transcribe({ id, audio, langs }) {
   const gc = w.model.generation_config;
   const inputs = await w.processor(audio);
 
-  const langIds = langs.map((l) => gc.lang_to_id[`<|${l.whisper}|>`]);
-  if (langIds.some((x) => x == null)) throw new Error(`音声認識が未対応の言語です: ${langs.map((l) => l.code).join(',')}`);
-  const lp = new LogitsProcessorList();
-  lp.push(new OnlyTokens(langIds));
-  const det = await w.model.generate({
-    ...inputs,
-    decoder_input_ids: [gc.decoder_start_token_id],
-    logits_processor: lp,
-    max_new_tokens: 1,
-  });
-  const detIds = Array.from(det[0].data).map(Number);
-  const picked = langs[langIds.indexOf(detIds[1])];
-  const t1 = performance.now();
+  let picked;
+  let t1;
+  if (langs.length === 1) {
+    picked = langs[0];
+    t1 = performance.now();
+  } else {
+    const langIds = langs.map((l) => gc.lang_to_id[`<|${l.whisper}|>`]);
+    if (langIds.some((x) => x == null)) throw new Error(`音声認識が未対応の言語です: ${langs.map((l) => l.code).join(',')}`);
+    const lp = new LogitsProcessorList();
+    lp.push(new OnlyTokens(langIds));
+    const det = await w.model.generate({
+      ...inputs,
+      decoder_input_ids: [gc.decoder_start_token_id],
+      logits_processor: lp,
+      max_new_tokens: 1,
+    });
+    const detIds = Array.from(det[0].data).map(Number);
+    picked = langs[langIds.indexOf(detIds[1])] || langs[0];
+    t1 = performance.now();
+  }
 
   const out = await w.model.generate({ ...inputs, language: picked.whisper, task: 'transcribe', max_new_tokens: 160 });
   let text = w.tokenizer.decode(Array.from(out[0].data).map(Number), { skip_special_tokens: true }).trim();

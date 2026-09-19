@@ -64,18 +64,20 @@
               </button>
             </div>
             <div class="composer__row composer__row--controls">
-              <button class="mic" id="micButton" type="button" data-active="false" aria-pressed="false" aria-label="自動聞き取り">
+              <button class="mic" id="micButton" type="button" data-active="false" aria-pressed="false" aria-label="自動認識">
                 <span class="mic__ring" aria-hidden="true"></span>
                 <svg class="mic__icon" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M12 15a4 4 0 0 0 4-4V6a4 4 0 1 0-8 0v5a4 4 0 0 0 4 4zm6-4a6 6 0 0 1-12 0H4a8 8 0 0 0 7 7.93V22h2v-3.07A8 8 0 0 0 20 11z"/></svg>
-                <span class="mic__label" id="micLabel">自動聞き取り 停止中</span>
+                <span class="mic__label" id="micLabel">自動認識 停止中</span>
               </button>
               <div class="composer__side">
-                <button class="btn btn--ghost" id="stopSpeak" type="button">読み上げ停止</button>
-                <label class="toggle">
-                  <input type="checkbox" id="autoSpeakToggle" checked />
-                  <span class="toggle__track" aria-hidden="true"></span>
-                  <span class="toggle__label">自動読み上げ</span>
-                </label>
+                <button class="lang-btn" id="langABtn" type="button" data-active="false" aria-pressed="false" aria-label="言語Aで音声認識">
+                  <span class="lang-btn__flag" id="langAFlag" aria-hidden="true"></span>
+                  <span class="lang-btn__name" id="langAName">言語 A</span>
+                </button>
+                <button class="lang-btn" id="langBBtn" type="button" data-active="false" aria-pressed="false" aria-label="言語Bで音声認識">
+                  <span class="lang-btn__flag" id="langBFlag" aria-hidden="true"></span>
+                  <span class="lang-btn__name" id="langBName">言語 B</span>
+                </button>
               </div>
             </div>
           </div>
@@ -195,8 +197,14 @@
               <span class="field__label">読み上げ速度 <output id="rateValue">1.0</output></span>
               <input id="rate" class="range" type="range" min="0.6" max="1.6" step="0.1" value="1" />
             </label>
+            <label class="toggle toggle--block">
+              <input type="checkbox" id="autoSpeakToggle" checked />
+              <span class="toggle__track" aria-hidden="true"></span>
+              <span class="toggle__label">翻訳後に自動で読み上げる</span>
+            </label>
             <div class="card__actions">
               <button class="btn btn--ghost" id="voiceTest" type="button">テスト読み上げ</button>
+              <button class="btn btn--ghost" id="stopSpeak" type="button">読み上げ停止</button>
             </div>
           </section>
 
