@@ -665,15 +665,11 @@ function renderVoiceControls() {
 
 const otherLang = (l) => (l === settings.langA ? settings.langB : settings.langA);
 
-// Whisper や Gemini が無音・雑音に対して出しがちな定型文。翻訳対象から除外する。
+// Whisper が無音や動画音声学習の雑音に対して出しがちな定型字幕ノイズ。
 const HALLUCINATIONS = [
-  /^お[つ疲]れ様(でした|です)?[。.]?$/,
   /^ご視聴ありがとうございました[。.]?$/,
-  /^おやすみなさい[。.]?$/,
-  /^こんにちは[。.]?$/,
-  /^Thank you( very much)?[.!]?$/i,
-  /^Thanks for watching[.!]?$/i,
   /^Thank you for watching[.!]?$/i,
+  /^Thanks for watching[.!]?$/i,
   /^You$/i,
 ];
 const isNoise = (t) => !t || !/[\p{L}\p{N}]/u.test(t) || HALLUCINATIONS.some((r) => r.test(t.trim()));

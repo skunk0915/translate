@@ -128,7 +128,7 @@ if (isset($req['audio'])) {
         $target = ($src === $a) ? $b : $a;
         $prompt = "The audio contains one utterance spoken in {$src} (" . LANG_NAMES[$src] . "). "
             . "Transcribe it verbatim in {$src}'s standard script, and translate it naturally into {$target} (" . LANG_NAMES[$target] . "). "
-            . "Keep the conversational tone. IMPORTANT: If there is no clear human speech (such as silence, breathing, background hum, static noise, coughing, or clicks), DO NOT guess, fabricate, or hallucinate any words (never output greetings like 'お疲れ様です' or 'Thank you'). In that case, you MUST return empty strings for both transcript and translation. "
+            . "Keep the conversational tone. If there is no intelligible human speech, return empty strings for transcript and translation. "
             . "Return JSON only.";
         $parts[] = ['inline_data' => ['mime_type' => 'audio/wav', 'data' => $audio]];
         $parts[] = ['text' => $prompt];
@@ -145,7 +145,7 @@ if (isset($req['audio'])) {
         $prompt = "The audio contains one utterance spoken in either {$a} (" . LANG_NAMES[$a] . ") or {$b} (" . LANG_NAMES[$b] . "). "
             . "Identify which language is spoken, transcribe it verbatim in that language's standard script, and translate it naturally into the other language "
             . "(if the speech is {$a}, translate into " . LANG_NAMES[$b] . "; if it is {$b}, translate into " . LANG_NAMES[$a] . "). "
-            . "Keep the conversational tone. IMPORTANT: If there is no clear human speech (such as silence, breathing, background hum, static noise, coughing, or clicks), DO NOT guess, fabricate, or hallucinate any words (never output greetings like 'お疲れ様です' or 'Thank you'). In that case, you MUST return empty strings for both transcript and translation. "
+            . "Keep the conversational tone. If there is no intelligible human speech, return empty strings for transcript and translation. "
             . "Return JSON only.";
         $parts[] = ['inline_data' => ['mime_type' => 'audio/wav', 'data' => $audio]];
         $parts[] = ['text' => $prompt];
