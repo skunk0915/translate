@@ -204,3 +204,12 @@ AI: 翻訳結果が出ているにもかかわらず「前の処理が完了す�
 - index.html
 - src/main.js
 - README.md
+
+2026-09-20 06:33:15
+USER: 無入力、無音声の時に「おつかれさまです」と翻訳されるのはおかしい
+AI: 無音・声を発していない状態で録音された場合に、音声認識AI（GeminiやWhisper）が無音ノイズから「お疲れ様です」などの定型挨拶を捏造（ハルシネーション）してしまう問題を解消。(1) クライアント側（src/recorder.js）に音声エネルギー（RMSおよびピーク振幅）の判定関数 isSilentAudio を新設。声が入っていない無音・環境ノイズレベルの音声データは、API送信前にその場で即座に遮断・破棄（toast: '声が検出されませんでした'）し、サーバーおよびAIへの不要な通信を元から根絶。(2) VAD（自動認識）の onSpeechEnd および handleJob の入口でも二重に isSilentAudio を判定し無音を徹底排除。(3) テキスト入力（submitTyped）で全角空白や不可視文字のみの入力も確実に送信抑止。(4) サーバー側プロキシ（server/api/translate.php）のプロンプトにおいて、無音やノイズ時に言葉を捏造せず必ず空文字を返す指示を強化。(5) HALLUCINATIONS 除外リストに「お疲れ様です」「Thank you」等の頻出幻覚パターンを追加。
+編集したファイルパス:
+- src/recorder.js
+- src/main.js
+- server/api/translate.php
+- README.md

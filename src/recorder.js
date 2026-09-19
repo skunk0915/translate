@@ -181,3 +181,18 @@ export class PttRecorder {
     this.audioCtx = null;
   }
 }
+
+// 音声データに実際の声（エネルギー）が含まれているか判定する。
+// 環境ノイズや無音の場合は true を返す。
+export function isSilentAudio(samples, rmsThreshold = 0.007, peakThreshold = 0.035) {
+  if (!samples || samples.length === 0) return true;
+  let sumSquares = 0;
+  let maxPeak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const val = Math.abs(samples[i]);
+    if (val > maxPeak) maxPeak = val;
+    sumSquares += val * val;
+  }
+  const rms = Math.sqrt(sumSquares / samples.length);
+  return rms < rmsThreshold && maxPeak < peakThreshold;
+}

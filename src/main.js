@@ -7,7 +7,7 @@ import { log } from './logger.js';
 import { startRemoteLog, deviceId } from './remote-log.js';
 import { hasModelFiles, deleteModelCache, requestPersistentStorage, storageEstimate } from './models.js';
 import { createVad } from './vad.js';
-import { PttRecorder } from './recorder.js';
+import { PttRecorder, isSilentAudio } from './recorder.js';
 import * as tts from './tts.js';
 
 // ------------------------------------------------------------
@@ -665,12 +665,15 @@ function renderVoiceControls() {
 
 const otherLang = (l) => (l === settings.langA ? settings.langB : settings.langA);
 
-// Whisper が無音や雑音に対して出しがちな定型文。翻訳対象から除外する。
+// Whisper や Gemini が無音・雑音に対して出しがちな定型文。翻訳対象から除外する。
 const HALLUCINATIONS = [
+  /^お[つ疲]れ様(でした|です)?[。.]?$/,
   /^ご視聴ありがとうございました[。.]?$/,
   /^おやすみなさい[。.]?$/,
-  /^Thank you for watching[.!]?$/i,
+  /^こんにちは[。.]?$/,
+  /^Thank you( very much)?[.!]?$/i,
   /^Thanks for watching[.!]?$/i,
+  /^Thank you for watching[.!]?$/i,
   /^You$/i,
 ];
 const isNoise = (t) => !t || !/[\p{L}\p{N}]/u.test(t) || HALLUCINATIONS.some((r) => r.test(t.trim()));
@@ -698,6 +701,12 @@ async function processQueue() {
 async function handleJob(job) {
   if (!isReady()) {
     toast('言語データが揃っていないため処理できません');
+    return;
+  }
+  if (job.kind === 'audio' && isSilentAudio(job.audio)) {
+    log.info('無音・音声入力なしのため処理破棄');
+    toast('声が検出されませんでした');
+    setStatus('idle');
     return;
   }
   const onlineMode = useOnline();
@@ -845,6 +854,11 @@ async function startListening() {
           if (listening && !busy) setStatus('hearing');
         },
         onSpeechEnd: (audio) => {
+          if (isSilentAudio(audio)) {
+            log.info('VAD 発話区間が無音のため破棄');
+            if (listening && !busy) setStatus('listening');
+            return;
+          }
           const seconds = +(audio.length / 16000).toFixed(1);
           log.info('発話区間を検出', { seconds, voiceMode });
           // Whisper の1ウィンドウ(30秒)を超える分は切り捨てる
@@ -2042,8 +2056,11 @@ function renderTypedLangControl() {
 }
 
 function submitTyped() {
-  const text = el.textInput.value.trim();
-  if (!text) return;
+  const text = el.textInput.value.replace(/^[\s\u3000\u200B-\u200D\uFEFF]+|[\s\u3000\u200B-\u200D\uFEFF]+$/g, '');
+  if (!text) {
+    el.textInput.value = '';
+    return;
+  }
   el.textInput.value = '';
   enqueue({ kind: 'text', text });
 }
@@ -2205,6 +2222,14 @@ async function stopPtt(targetBtn) {
   if (!res || !res.audio || effectiveSeconds < 0.15) {
     log.info('PTT 音声が短すぎるためスキップ', { seconds: effectiveSeconds, pressDuration, recordedSeconds: res?.seconds });
     toast('録音時間が短すぎます。ボタンを長押ししながら話してください');
+    setStatus('idle');
+    return;
+  }
+
+  // 声が入っていない（無音・環境ノイズのみ）場合はAPIに送信せずその場で破棄
+  if (isSilentAudio(res.audio)) {
+    log.info('PTT 音声が無音/声が小さすぎるため破棄', { seconds: res.seconds });
+    toast('声が検出されませんでした');
     setStatus('idle');
     return;
   }
