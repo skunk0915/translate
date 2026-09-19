@@ -3,6 +3,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { LANGUAGES, requiredModels, pairSupported, directionSupported, routeFor, allKnownModels, detectTextLang } from './languages.js';
 import * as online from './online.js';
 import { kv, history } from './db.js';
+import { auth } from './auth.js';
 import { log } from './logger.js';
 import { startRemoteLog, deviceId } from './remote-log.js';
 import { hasModelFiles, deleteModelCache, requestPersistentStorage, storageEstimate } from './models.js';
@@ -127,6 +128,14 @@ const el = {
   conversationHintSub: $('conversationHintSub'),
   versionText: $('versionText'),
   toast: $('toast'),
+  authModal: $('authModal'),
+  authForm: $('authForm'),
+  authUsername: $('authUsername'),
+  authPassword: $('authPassword'),
+  authError: $('authError'),
+  authSubmit: $('authSubmit'),
+  accountUser: $('accountUser'),
+  logoutBtn: $('logoutBtn'),
 };
 
 let toastTimer = null;
@@ -164,6 +173,7 @@ function showView(name) {
   }
   if (name === 'history') renderHistory();
   if (name === 'settings') {
+    renderAccount();
     renderMode();
     renderModelList();
     renderStorageInfo();
@@ -2124,6 +2134,70 @@ window.addEventListener('offline', async () => {
 });
 
 // ------------------------------------------------------------
+// ユーザー認証 (ID / パスワード式)
+// ------------------------------------------------------------
+function renderAccount() {
+  const isLoggedIn = auth.isLoggedIn();
+  const user = auth.getUser();
+  if (isLoggedIn) {
+    el.accountUser.textContent = `${user} (ログイン中)`;
+    el.logoutBtn.hidden = false;
+  } else {
+    el.accountUser.textContent = '未ログイン';
+    el.logoutBtn.hidden = true;
+  }
+}
+
+function updateAuthUI() {
+  renderAccount();
+  if (auth.isLoggedIn()) {
+    el.authModal.hidden = true;
+  } else {
+    el.authModal.hidden = false;
+    el.authPassword.value = '';
+    el.authError.hidden = true;
+  }
+}
+
+el.authForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = el.authUsername.value.trim();
+  const password = el.authPassword.value;
+  if (!username || !password) return;
+
+  el.authSubmit.disabled = true;
+  el.authError.hidden = true;
+  try {
+    await auth.login(username, password);
+    toast('ログインしました');
+    updateAuthUI();
+    await renderRecent();
+    if (el.app.dataset.view === 'history') await renderHistory();
+  } catch (err) {
+    el.authError.textContent = err.message || 'ログインに失敗しました';
+    el.authError.hidden = false;
+  } finally {
+    el.authSubmit.disabled = false;
+  }
+});
+
+el.logoutBtn.addEventListener('click', async () => {
+  if (!confirm('ログアウトしますか？')) return;
+  await auth.logout();
+  toast('ログアウトしました');
+  updateAuthUI();
+  await renderRecent();
+  if (el.app.dataset.view === 'history') await renderHistory();
+});
+
+auth.onChange((isLoggedIn) => {
+  updateAuthUI();
+  if (isLoggedIn) {
+    renderRecent();
+  }
+});
+
+// ------------------------------------------------------------
 // その他 UI
 // ------------------------------------------------------------
 async function toggleVoiceListening(mode) {
@@ -2365,6 +2439,8 @@ async function boot() {
   renderPair();
   renderMode();
   renderVoices();
+  await auth.check();
+  updateAuthUI();
   await renderRecent();
 
   // 初回起動時やLocalStorage未同期時、Cache APIに既に保存されているモデルがあれば同期する

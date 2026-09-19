@@ -99,6 +99,18 @@
             <h2 class="view__title">設定</h2>
           </div>
 
+          <section class="card" id="accountCard">
+            <h3 class="card__title">アカウント</h3>
+            <p class="card__desc">履歴はアカウントごとにサーバーへ安全に保存・同期されます。</p>
+            <div class="account-status">
+              <span class="account-status__label">ログイン状態:</span>
+              <strong class="account-status__user" id="accountUser">確認中...</strong>
+            </div>
+            <div class="card__actions">
+              <button class="btn btn--ghost btn--danger" id="logoutBtn" type="button">ログアウト</button>
+            </div>
+          </section>
+
           <section class="card">
             <h3 class="card__title">翻訳モード</h3>
             <p class="card__desc">オンラインは Gemini による高精度な音声認識・翻訳（通信が必要）。オフラインは端末内のモデルで動作します。</p>
@@ -257,6 +269,31 @@
           <span>設定</span>
         </button>
       </nav>
+
+      <!-- ログインモーダル -->
+      <div class="auth-modal" id="authModal" hidden>
+        <div class="auth-modal__backdrop"></div>
+        <div class="auth-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+          <div class="auth-modal__head">
+            <h2 class="auth-modal__title" id="authTitle">ログイン</h2>
+            <p class="auth-modal__desc">履歴の同期と保存を行うため、アカウントでログインしてください。</p>
+          </div>
+          <form class="auth-modal__form" id="authForm">
+            <label class="field">
+              <span class="field__label">ユーザー名</span>
+              <input class="composer__input auth-modal__input" id="authUsername" type="text" autocomplete="username" required placeholder="mizy" value="mizy" />
+            </label>
+            <label class="field">
+              <span class="field__label">パスワード</span>
+              <input class="composer__input auth-modal__input" id="authPassword" type="password" autocomplete="current-password" required placeholder="パスワードを入力" />
+            </label>
+            <p class="auth-modal__error" id="authError" hidden></p>
+            <div class="auth-modal__actions">
+              <button class="btn btn--primary auth-modal__submit" id="authSubmit" type="submit">ログイン</button>
+            </div>
+          </form>
+        </div>
+      </div>
 
       <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     </div>

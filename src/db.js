@@ -1,3 +1,5 @@
+import { auth } from './auth.js';
+
 // IndexedDB ラッパー: 履歴 / 設定 / 処理ログ
 const DB_NAME = 'transrate';
 const DB_VERSION = 1;
@@ -33,7 +35,6 @@ function tx(store, mode, fn) {
           result = fn(s);
         } catch (e) {
           reject(e);
-          return;
         }
         t.oncomplete = () => resolve(result && 'result' in result ? result.result : result);
         t.onerror = () => reject(t.error);
@@ -64,17 +65,26 @@ export async function getDeviceId() {
 // サーバー通信
 async function callHistoryApi(action, payload = {}) {
   const device = await getDeviceId();
+  const token = auth.getToken();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12000);
   try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     const res = await fetch(HISTORY_API, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, device, ...payload }),
+      credentials: 'include',
+      headers,
+      body: JSON.stringify({ action, device, token, ...payload }),
       signal: ctrl.signal,
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);
+      if (res.status === 401) {
+        auth.clearSession();
+      }
       throw new Error(err?.error || `HTTP ${res.status}`);
     }
     return await res.json();
