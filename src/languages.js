@@ -135,3 +135,64 @@ export function allKnownModels() {
   }
   return out;
 }
+
+// 入力テキストから言語Aと言語Bのどちらかを判定する(オフライン用判定)
+export function detectTextLang(text, langA, langB) {
+  if (!text) return langA;
+
+  function scoreForLang(code, str) {
+    let score = 0;
+    switch (code) {
+      case 'ja':
+        if (/[\u3040-\u309F\u30A0-\u30FF]/.test(str)) score += 10;
+        if (/[\u4E00-\u9FFF]/.test(str)) score += 2;
+        break;
+      case 'ko':
+        if (/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/.test(str)) score += 10;
+        break;
+      case 'th':
+        if (/[\u0E00-\u0E7F]/.test(str)) score += 10;
+        break;
+      case 'zh':
+      case 'zh-TW':
+        if (/[\u4E00-\u9FFF]/.test(str) && !/[\u3040-\u309F\u30A0-\u30FF]/.test(str)) score += 10;
+        break;
+      case 'vi':
+        if (/[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ]/.test(str)) score += 10;
+        else if (/[a-zA-Z]/.test(str)) score += 1;
+        break;
+      case 'ru':
+      case 'uk':
+        if (/[\u0400-\u04FF]/.test(str)) score += 10;
+        break;
+      case 'ar':
+        if (/[\u0600-\u06FF]/.test(str)) score += 10;
+        break;
+      case 'hi':
+        if (/[\u0900-\u097F]/.test(str)) score += 10;
+        break;
+      case 'en':
+      case 'fr':
+      case 'de':
+      case 'es':
+      case 'it':
+      case 'id':
+      case 'nl':
+      case 'sv':
+      case 'fi':
+      case 'cs':
+      case 'da':
+        if (/[a-zA-Z]/.test(str)) score += 3;
+        break;
+      default:
+        break;
+    }
+    return score;
+  }
+
+  const scoreA = scoreForLang(langA, text);
+  const scoreB = scoreForLang(langB, text);
+
+  if (scoreB > scoreA) return langB;
+  return langA;
+}

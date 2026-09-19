@@ -1,6 +1,6 @@
 import '../styles/main.scss';
 import { registerSW } from 'virtual:pwa-register';
-import { LANGUAGES, requiredModels, pairSupported, directionSupported, routeFor, allKnownModels } from './languages.js';
+import { LANGUAGES, requiredModels, pairSupported, directionSupported, routeFor, allKnownModels, detectTextLang } from './languages.js';
 import * as online from './online.js';
 import { kv, history } from './db.js';
 import { log } from './logger.js';
@@ -722,10 +722,10 @@ async function handleJob(job) {
         }
         dstLang = otherLang(srcLang);
       } else {
-        srcLang = job.lang;
         srcText = job.text;
+        const r = await online.translateText(srcText, [settings.langA, settings.langB], null, settings.thinkingLevel);
+        srcLang = r.lang || detectTextLang(srcText, settings.langA, settings.langB);
         dstLang = otherLang(srcLang);
-        const r = await online.translateText(srcText, srcLang, dstLang, settings.thinkingLevel);
         dstText = (r.translation ?? '').trim();
         translateMs = r.ms;
         log.info('オンライン翻訳', { from: srcLang, to: dstLang, ms: r.ms, text: dstText, thinking: settings.thinkingLevel });
@@ -756,8 +756,8 @@ async function handleJob(job) {
         pendingEl.querySelector('.bubble__src').textContent = srcText;
         pendingEl.querySelector('.bubble__dst').textContent = '翻訳中…';
       } else {
-        srcLang = job.lang;
         srcText = job.text;
+        srcLang = job.lang || detectTextLang(srcText, settings.langA, settings.langB);
       }
       dstLang = otherLang(srcLang);
       const route = routeFor(srcLang, dstLang);
@@ -2029,28 +2029,14 @@ el.logCopy.addEventListener('click', async () => {
 // ------------------------------------------------------------
 let typedControl = null;
 function renderTypedLangControl() {
-  if (!typedControl) {
-    typedControl = document.createElement('div');
-    typedControl.className = 'seg';
-    typedControl.setAttribute('role', 'radiogroup');
-    typedControl.setAttribute('aria-label', '入力テキストの言語');
-    el.textInput.parentElement.insertBefore(typedControl, el.textInput);
+  if (typedControl) {
+    typedControl.remove();
+    typedControl = null;
   }
-  typedControl.innerHTML = '';
-  for (const side of ['A', 'B']) {
-    const lang = side === 'A' ? settings.langA : settings.langB;
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'seg__item';
-    b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', String(settings.typedLang === side));
-    b.textContent = LANGUAGES[lang].native;
-    b.addEventListener('click', () => {
-      settings.typedLang = side;
-      saveSettings();
-      renderTypedLangControl();
-    });
-    typedControl.appendChild(b);
+  const la = LANGUAGES[settings.langA];
+  const lb = LANGUAGES[settings.langB];
+  if (el.textInput && la && lb) {
+    el.textInput.placeholder = `テキスト入力でも翻訳できます（${la.name} / ${lb.name} 自動判別）`;
   }
 }
 
@@ -2058,8 +2044,7 @@ function submitTyped() {
   const text = el.textInput.value.trim();
   if (!text) return;
   el.textInput.value = '';
-  const lang = settings.typedLang === 'A' ? settings.langA : settings.langB;
-  enqueue({ kind: 'text', text, lang });
+  enqueue({ kind: 'text', text });
 }
 el.textSend.addEventListener('click', submitTyped);
 el.textInput.addEventListener('keydown', (e) => {

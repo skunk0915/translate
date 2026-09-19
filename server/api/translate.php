@@ -162,18 +162,37 @@ if (isset($req['audio'])) {
 } elseif (isset($req['text'])) {
     $mode = 'text';
     $text = trim((string) $req['text']);
-    $src = $req['src'] ?? '';
-    $dst = $req['dst'] ?? '';
     if ($text === '' || mb_strlen($text) > MAX_TEXT_CHARS) {
         fail(400, 'text が空か長すぎます');
     }
-    if (!isset(LANG_NAMES[$src], LANG_NAMES[$dst]) || $src === $dst) {
-        fail(400, 'src / dst が不正です');
+    $langs = $req['langs'] ?? null;
+    $src = $req['src'] ?? '';
+    $dst = $req['dst'] ?? '';
+
+    if (is_array($langs) && count($langs) === 2 && isset(LANG_NAMES[$langs[0]], LANG_NAMES[$langs[1]]) && $langs[0] !== $langs[1]) {
+        $a = $langs[0];
+        $b = $langs[1];
+        $prompt = "The following text is written in either {$a} (" . LANG_NAMES[$a] . ") or {$b} (" . LANG_NAMES[$b] . "). "
+            . "Identify which language it is written in, and translate it naturally into the other language "
+            . "(if the text is {$a}, translate into " . LANG_NAMES[$b] . "; if it is {$b}, translate into " . LANG_NAMES[$a] . "). "
+            . "Keep the conversational tone. Output JSON only.\n\n" . $text;
+        $parts[] = ['text' => $prompt];
+        $schema = [
+            'type' => 'OBJECT',
+            'properties' => [
+                'lang' => ['type' => 'STRING', 'enum' => [$a, $b]],
+                'translation' => ['type' => 'STRING'],
+            ],
+            'required' => ['lang', 'translation'],
+        ];
+    } elseif (isset(LANG_NAMES[$src], LANG_NAMES[$dst]) && $src !== $dst) {
+        $prompt = 'Translate the following ' . LANG_NAMES[$src] . ' text into ' . LANG_NAMES[$dst]
+            . ". Keep the meaning and conversational tone; output only the translation as JSON.\n\n" . $text;
+        $parts[] = ['text' => $prompt];
+        $schema = ['type' => 'OBJECT', 'properties' => ['translation' => ['type' => 'STRING']], 'required' => ['translation']];
+    } else {
+        fail(400, 'langs または src / dst が不正です');
     }
-    $prompt = 'Translate the following ' . LANG_NAMES[$src] . ' text into ' . LANG_NAMES[$dst]
-        . ". Keep the meaning and conversational tone; output only the translation as JSON.\n\n" . $text;
-    $parts[] = ['text' => $prompt];
-    $schema = ['type' => 'OBJECT', 'properties' => ['translation' => ['type' => 'STRING']], 'required' => ['translation']];
 } else {
     fail(400, 'audio または text が必要です');
 }

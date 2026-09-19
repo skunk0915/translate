@@ -65,9 +65,15 @@ export function recognizeAndTranslate(samples, langs, src = null, thinkingLevel 
   return post(body);
 }
 
-// テキスト → { translation, ms }
-export function translateText(text, src, dst, thinkingLevel = null) {
-  const body = { text, src, dst };
+// テキスト → { translation, ms, lang? }
+export function translateText(text, srcOrLangs, dst = null, thinkingLevel = null) {
+  const body = { text };
+  if (Array.isArray(srcOrLangs)) {
+    body.langs = srcOrLangs;
+  } else {
+    body.src = srcOrLangs;
+    body.dst = dst;
+  }
   if (thinkingLevel) body.thinkingLevel = thinkingLevel;
   return post(body);
 }
