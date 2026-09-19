@@ -23,6 +23,7 @@ ssh "$HOST" bash -s <<'REMOTE'
 set -e
 chown -R www-data:www-data /var/www/transrate
 mkdir -p /var/log/transrate && chown www-data:www-data /var/log/transrate && chmod 750 /var/log/transrate
+mkdir -p /var/lib/transrate && chown www-data:www-data /var/lib/transrate && chmod 750 /var/lib/transrate
 if [ ! -f /etc/transrate/.env ]; then
   echo "!! /etc/transrate/.env がありません。GEMINI_API_KEY / GEMINI_MODEL を定義してください(オンラインモードが使えません)。"
 fi

@@ -17,7 +17,7 @@
 - **置きっぱなしでもワンタップでも切り替え可能** — 発話区間検出(Silero VAD)で「話し終わり」を検知して自動処理。置いたままでの会話はもちろん、特定の言語で確実に認識させたい場合は該当言語のボタンを押して開始・切り替えできます。自動読み上げのオン/オフや読み上げ停止ボタンは設定画面の「読み上げ音声」内に集約。
 - **長押し・タップによるインライン編集と再翻訳** — 会話バブルおよび履歴画面の各項目において、翻訳結果や原文の長押し（またはタップ／編集ボタン）でその場でインライン編集欄を表示。誤認識の修正や文脈の追記を行って即座に再翻訳が可能（履歴と会話画面は双方向に自動同期）。長押し時は触覚フィードバック（バイブレーション）と押し込みアニメーションを提供。
 - **話し終わりの判定時間(間)の調整** — 会話のテンポや話し方に合わせて、発話終了とみなす無音時間(1.0秒〜2.2秒、標準1.4秒)を設定画面で変更可能。
-- **履歴の全件保存 / 確認アラート付き削除 / 全削除** — IndexedDB に保存。個別削除・全削除のいずれも確認アラートを表示して誤削除を防止。
+- **履歴のサーバー側保存（端末ID連携）** — 履歴はサーバー側（SQLite: `/var/lib/transrate/history.db`）へ端末IDごとに安全に永続保存。オンライン時はリアルタイムにサーバーへ登録・更新・削除され、オフライン時は端末内（IndexedDB）に自動キャッシュ・保留され、オンライン復帰時に自動で一括同期されます。個別削除・全削除も確認アラート付きで完全対応。
 - **履歴から違う言語への追加翻訳** — 履歴画面の各項目にある「違う言語へ翻訳」ボタンから任意の言語を選択して翻訳を実行でき、その言語での翻訳結果をカードの下に追加表示可能（各追加言語の読み上げ・個別削除対応、会話画面とも自動同期）。
 - **翻訳直後に自動読み上げ** + 各項目の「読み上げ」ボタン。
 - テキスト入力からの翻訳、読み上げ音声・速度の選択、処理ログ(直近500件)の閲覧・コピー。
@@ -30,9 +30,10 @@
 | 音声認識・言語判定(オフライン) | Whisper (tiny/base/small, ONNX q8) を [Transformers.js](https://huggingface.co/docs/transformers.js) で実行 |
 | 翻訳(オフライン) | Marian 系 ONNX モデル (Helsinki-NLP opus-mt / FuguMT) を Transformers.js で実行。簡体字⇄繁体字は OpenCC(opencc-js) で変換 |
 | 音声認識・翻訳(オンライン) | `server/api/translate.php` (PHP) が Gemini API(`generateContent`, 音声 inline_data)を呼ぶ。モデル名・API キーは `/etc/transrate/.env` |
+| 履歴保存(サーバー) | `server/api/history.php` (PHP + PDO SQLite)。端末IDごとに `/var/lib/transrate/history.db` に永続保存 |
 | 発話区間検出 | [@ricky0123/vad-web](https://github.com/ricky0123/vad) (Silero VAD v5) |
 | 読み上げ | 端末内蔵の Web Speech API (`speechSynthesis`) |
-| 保存 | IndexedDB(履歴・設定・ログ)、Cache API(モデル本体) |
+| 保存(クライアント) | サーバー同期(履歴)、IndexedDB (設定・オフラインキャッシュ・ログ)、Cache API (モデル本体) |
 | ビルド / PWA | Vite + vite-plugin-pwa (Workbox) |
 
 モデル本体は HuggingFace から取得し、ブラウザの Cache Storage(`transformers-cache`)に保存されます。ONNX Runtime の wasm と VAD モデルはアプリに同梱(`public/ort`, `public/ort-vad`, `public/vad`)し、Service Worker がプリキャッシュするため、2回目以降は完全オフラインで起動します。

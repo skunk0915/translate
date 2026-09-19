@@ -1997,6 +1997,10 @@ el.modeChip.addEventListener('click', () => showView('settings'));
 window.addEventListener('online', () => {
   log.info('通信: オンライン');
   updateReadiness();
+  history.sync().then(() => {
+    renderRecent();
+    renderHistory();
+  }).catch(() => {});
   toast(settings.mode === 'auto' ? 'ネット接続を検出。オンライン翻訳に切り替えました' : 'ネットに接続しました');
 });
 window.addEventListener('offline', async () => {
