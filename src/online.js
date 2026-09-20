@@ -31,9 +31,13 @@ export function encodeWavBase64(samples, sampleRate = 16000) {
   return btoa(bin);
 }
 
-async function post(body) {
+async function post(body, signal = null) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 70000);
+  if (signal) {
+    signal.addEventListener('abort', () => ctrl.abort(), { once: true });
+    if (signal.aborted) ctrl.abort();
+  }
   let res;
   try {
     res = await fetch(API, {
@@ -43,6 +47,11 @@ async function post(body) {
       signal: ctrl.signal,
     });
   } catch (e) {
+    if (signal?.aborted) {
+      const err = new Error('中断されました');
+      err.name = 'AbortError';
+      throw err;
+    }
     throw new Error(e.name === 'AbortError' ? 'オンライン翻訳がタイムアウトしました' : `オンライン翻訳に接続できません: ${e.message}`);
   } finally {
     clearTimeout(timer);
@@ -53,20 +62,25 @@ async function post(body) {
   } catch {
     // 本文が JSON でない
   }
+  if (signal?.aborted) {
+    const err = new Error('中断されました');
+    err.name = 'AbortError';
+    throw err;
+  }
   if (!res.ok) throw new Error(json?.error ? `オンライン翻訳エラー: ${json.error}` : `オンライン翻訳エラー (HTTP ${res.status})`);
   return json;
 }
 
 // 音声 → { lang, transcript, translation, ms }
-export function recognizeAndTranslate(samples, langs, src = null, thinkingLevel = null) {
+export function recognizeAndTranslate(samples, langs, src = null, thinkingLevel = null, signal = null) {
   const body = { audio: encodeWavBase64(samples), langs };
   if (src) body.src = src;
   if (thinkingLevel) body.thinkingLevel = thinkingLevel;
-  return post(body);
+  return post(body, signal);
 }
 
 // テキスト → { translation, ms, lang? }
-export function translateText(text, srcOrLangs, dst = null, thinkingLevel = null) {
+export function translateText(text, srcOrLangs, dst = null, thinkingLevel = null, signal = null) {
   const body = { text };
   if (Array.isArray(srcOrLangs)) {
     body.langs = srcOrLangs;
@@ -75,5 +89,5 @@ export function translateText(text, srcOrLangs, dst = null, thinkingLevel = null
     body.dst = dst;
   }
   if (thinkingLevel) body.thinkingLevel = thinkingLevel;
-  return post(body);
+  return post(body, signal);
 }

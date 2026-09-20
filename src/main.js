@@ -682,8 +682,33 @@ let vad = null;
 let listening = false;
 let voiceMode = 'auto'; // 'auto' | 'langA' | 'langB'
 let busy = false;
+let queueRunToken = 0;
+let currentJobAbortCtrl = null;
+let currentPendingEl = null;
 const queue = [];
 let wakeLock = null;
+
+function cancelCurrentJob(reason = '中断') {
+  log.info(`ジョブをキャンセル: ${reason}`);
+  queueRunToken++;
+  tts.stop();
+  if (currentJobAbortCtrl) {
+    try {
+      currentJobAbortCtrl.abort();
+    } catch (_) {}
+    currentJobAbortCtrl = null;
+  }
+  if (currentPendingEl) {
+    try {
+      currentPendingEl.remove();
+    } catch (_) {}
+    currentPendingEl = null;
+    renderTalk().catch(() => {});
+  }
+  queue.length = 0;
+  busy = false;
+  setStatus('idle');
+}
 
 const pttRecorder = new PttRecorder();
 let isPttRecording = false;
@@ -767,15 +792,19 @@ function enqueue(job) {
 async function processQueue() {
   if (busy) return;
   busy = true;
+  const token = ++queueRunToken;
   try {
     while (queue.length) {
       const job = queue.shift();
       await handleJob(job);
+      if (token !== queueRunToken) break;
     }
   } finally {
-    busy = false;
-    updateReadiness();
-    if (listening) setStatus('listening');
+    if (token === queueRunToken) {
+      busy = false;
+      updateReadiness();
+      if (listening && !isPttRecording) setStatus('listening');
+    }
   }
 }
 
@@ -790,8 +819,14 @@ async function handleJob(job) {
     setStatus('idle');
     return;
   }
+  const abortCtrl = new AbortController();
+  currentJobAbortCtrl = abortCtrl;
+  const signal = abortCtrl.signal;
+
   const onlineMode = useOnline();
   const pendingEl = showPendingBubble(job.kind === 'audio' ? (onlineMode ? '送信中…' : '聞き取り中…') : job.text);
+  currentPendingEl = pendingEl;
+
   try {
     let srcLang, srcText, dstLang, dstText;
     let detectMs = null, transcribeMs = null, translateMs = null;
@@ -800,7 +835,8 @@ async function handleJob(job) {
       setStatus('translating', 'オンライン翻訳中');
       if (job.kind === 'audio') {
         const fixedSrc = job.voiceMode === 'langA' ? settings.langA : job.voiceMode === 'langB' ? settings.langB : null;
-        const r = await online.recognizeAndTranslate(job.audio, [settings.langA, settings.langB], fixedSrc, settings.thinkingLevel);
+        const r = await online.recognizeAndTranslate(job.audio, [settings.langA, settings.langB], fixedSrc, settings.thinkingLevel, signal);
+        if (signal.aborted) return;
         srcLang = r.lang;
         srcText = (r.transcript ?? '').trim();
         dstText = (r.translation ?? '').trim();
@@ -808,13 +844,15 @@ async function handleJob(job) {
         log.info('オンライン音声翻訳', { lang: srcLang, text: srcText, ms: r.ms, sec: job.seconds, voiceMode: job.voiceMode, fixedSrc, thinking: settings.thinkingLevel });
         if (isNoise(srcText) || !dstText) {
           pendingEl.remove();
+          if (currentPendingEl === pendingEl) currentPendingEl = null;
           log.info('無音/ノイズとして破棄', { text: srcText });
           return;
         }
         dstLang = otherLang(srcLang);
       } else {
         srcText = job.text;
-        const r = await online.translateText(srcText, [settings.langA, settings.langB], null, settings.thinkingLevel);
+        const r = await online.translateText(srcText, [settings.langA, settings.langB], null, settings.thinkingLevel, signal);
+        if (signal.aborted) return;
         srcLang = r.lang || detectTextLang(srcText, settings.langA, settings.langB);
         dstLang = otherLang(srcLang);
         dstText = (r.translation ?? '').trim();
@@ -834,6 +872,7 @@ async function handleJob(job) {
           langs = [settings.langA, settings.langB].map((c) => ({ code: c, whisper: LANGUAGES[c].whisper, post: LANGUAGES[c].post }));
         }
         const r = await call({ type: 'transcribe', audio: job.audio, langs }, [job.audio.buffer]);
+        if (signal.aborted) return;
         srcLang = r.lang;
         srcText = r.text;
         detectMs = r.detectMs;
@@ -841,6 +880,7 @@ async function handleJob(job) {
         log.info('文字起こし', { lang: srcLang, text: srcText, detectMs, transcribeMs, sec: job.seconds, voiceMode: job.voiceMode });
         if (isNoise(srcText)) {
           pendingEl.remove();
+          if (currentPendingEl === pendingEl) currentPendingEl = null;
           log.info('無音/ノイズとして破棄', { text: srcText });
           return;
         }
@@ -850,20 +890,24 @@ async function handleJob(job) {
         srcText = job.text;
         srcLang = job.lang || detectTextLang(srcText, settings.langA, settings.langB);
       }
+      if (signal.aborted) return;
       dstLang = otherLang(srcLang);
       const route = routeFor(srcLang, dstLang);
       if (!route) {
         pendingEl.remove();
+        if (currentPendingEl === pendingEl) currentPendingEl = null;
         const msg = `${LANGUAGES[srcLang].name} → ${LANGUAGES[dstLang].name} はオフラインでは翻訳できません。オンラインモードを使ってください。`;
         log.warn('オフライン未対応方向', { from: srcLang, to: dstLang, text: srcText });
         toast(msg, 5000);
         return;
       }
       const t = await translateOffline(srcLang, dstLang, srcText);
+      if (signal.aborted) return;
       dstText = t.text;
       translateMs = t.ms;
       log.info('翻訳', { from: srcLang, to: dstLang, ms: t.ms, steps: t.steps });
     }
+    if (signal.aborted) return;
     const entry = {
       ts: Date.now(),
       srcLang,
@@ -877,13 +921,27 @@ async function handleJob(job) {
       mode: onlineMode ? 'online' : 'offline',
     };
     entry.id = await history.add(entry);
+    if (signal.aborted) return;
     pendingEl.remove();
+    if (currentPendingEl === pendingEl) currentPendingEl = null;
     appendBubble(entry);
     if (settings.autoSpeak) speakEntry(entry).catch(() => {});
   } catch (e) {
+    if (signal.aborted || e.name === 'AbortError') {
+      log.info('ジョブは中断されました');
+      return;
+    }
     pendingEl.remove();
+    if (currentPendingEl === pendingEl) currentPendingEl = null;
     log.error('会話処理に失敗', e);
     toast(`処理に失敗しました: ${e.message}`, 5000);
+  } finally {
+    if (currentJobAbortCtrl === abortCtrl) {
+      currentJobAbortCtrl = null;
+    }
+    if (currentPendingEl === pendingEl) {
+      currentPendingEl = null;
+    }
   }
 }
 
@@ -2816,6 +2874,9 @@ window.addEventListener('keydown', async (e) => {
 // その他 UI
 // ------------------------------------------------------------
 async function toggleVoiceListening(mode) {
+  if (busy || currentJobAbortCtrl || currentPendingEl) {
+    cancelCurrentJob('音声切り替えによる中断');
+  }
   if (listening && voiceMode === mode) {
     await stopListening();
     return;
@@ -2831,15 +2892,16 @@ async function toggleVoiceListening(mode) {
 // ---- 手動録音 (プッシュ・トゥ・トーク) 制御 ----
 async function startPtt(mode, targetBtn, pointerId = null) {
   if (isPttRecording) return;
-  tts.stop();
+  // 前の翻訳処理中または読み上げ中であれば即座に中断して新規録音を開始
+  if (busy || currentJobAbortCtrl || currentPendingEl) {
+    cancelCurrentJob('PTT開始による中断');
+  } else {
+    tts.stop();
+  }
   if (!isReady()) {
     updateReadiness();
     showView('settings');
     toast('先に言語データをダウンロードするか、オンラインモードに切り替えてください');
-    return;
-  }
-  if (busy) {
-    toast('前の処理が完了するまでお待ちください');
     return;
   }
 
@@ -2953,6 +3015,10 @@ function bindVoiceButton(btn, mode) {
     if (e.button !== 0) return; // 主ボタン(左クリック/タッチ)のみ
     if (settings.speechDetectMode === 'manual') {
       e.preventDefault();
+      // ボタンを押した瞬間に前の翻訳・読み上げ処理を即時中断
+      if (busy || currentJobAbortCtrl || currentPendingEl) {
+        cancelCurrentJob('PTT押下による中断');
+      }
       // ユーザー操作の同期コールバック内で AudioContext を即時初期化・再開（iOS Safari 必須対策）
       pttRecorder.ensureAudioContext();
       startPtt(mode, btn, e.pointerId);

@@ -388,5 +388,11 @@ AI: 会話カード（.bubble--a, .bubble--b）の左端に設定されていた
 - styles/main.scss
 - package.json
 
-
-
+2026-09-20 15:46:06
+USER: 翻訳中に音声入力ボタンおしたら処理中断して新規音声入力と翻訳処理を即開始して
+AI: オンライン翻訳（API通信）・オフライン推論・TTS読み上げの実行中であっても、音声入力ボタン（長押し・マイクボタン・言語ボタン）を押した瞬間に前の処理を即座に中断（Abort）し、0msで新規音声入力と翻訳を開始できるように改修しました。(1) src/online.js のAPI通信処理（post/fetch）に AbortSignal を導入し、中断時に即時HTTPリクエストを破棄（AbortError）してサーバー通信を中断する機構を実装。(2) src/main.js にて cancelCurrentJob 関数を新設し、進行中ジョブの中断（currentJobAbortCtrl.abort()）、音声読み上げ停止（tts.stop()）、画面上の「送信中…」バブルの即時除去、待機キューのクリア、および実行世代トークン（queueRunToken）による非同期競合防止を導入。(3) PTT録音開始（startPtt）およびボタン押下時（pointerdown）、音声認識切り替え（toggleVoiceListening）時に前の処理を即座にキャンセルするようにし、従来の「前の処理が完了するまでお待ちください」というブロックを撤廃して瞬時に新規マイク録音・新規翻訳へ移行できるように改修。(4) package.json のバージョンを 1.0.8 に更新し、README.md の機能仕様を更新した上でカゴヤVPSへ本番デプロイ完了。
+編集したファイルパス:
+- src/online.js
+- src/main.js
+- package.json
+- README.md
