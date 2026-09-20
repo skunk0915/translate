@@ -269,6 +269,8 @@ switch ($action) {
         $id = (int) $entry['id'];
         $srcText = (string) ($entry['srcText'] ?? '');
         $dstText = (string) ($entry['dstText'] ?? '');
+        $srcLang = (string) ($entry['srcLang'] ?? '');
+        $dstLang = (string) ($entry['dstLang'] ?? '');
         $ts = is_numeric($entry['ts'] ?? null) ? (int) $entry['ts'] : (int) (microtime(true) * 1000);
         $extraJson = !empty($entry['extraTranslations']) && is_array($entry['extraTranslations'])
             ? json_encode($entry['extraTranslations'], JSON_UNESCAPED_UNICODE)
@@ -276,7 +278,7 @@ switch ($action) {
 
         $stmt = $db->prepare('
             UPDATE history
-            SET src_text = :src_text, dst_text = :dst_text, extra_translations = :extra, ts = :ts, updated_at = datetime("now", "localtime")
+            SET src_text = :src_text, dst_text = :dst_text, src_lang = CASE WHEN :src_lang != "" THEN :src_lang ELSE src_lang END, dst_lang = CASE WHEN :dst_lang != "" THEN :dst_lang ELSE dst_lang END, extra_translations = :extra, ts = :ts, updated_at = datetime("now", "localtime")
             WHERE id = :id AND user_id = :user
         ');
         $stmt->execute([
@@ -284,6 +286,8 @@ switch ($action) {
             ':user' => $userId,
             ':src_text' => $srcText,
             ':dst_text' => $dstText,
+            ':src_lang' => $srcLang,
+            ':dst_lang' => $dstLang,
             ':extra' => $extraJson,
             ':ts' => $ts,
         ]);
