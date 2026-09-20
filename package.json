@@ -1,6 +1,6 @@
 {
   "name": "transrate",
-  "version": "1.0.4",
+  "version": "1.0.7",
   "private": true,
   "description": "オフライン対応の双方向自動音声翻訳PWA",
   "type": "module",

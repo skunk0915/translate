@@ -104,37 +104,13 @@
           </div>
         </section>
 
-        <!-- 履歴（1件表示 & 上下ナビゲーション） -->
+        <!-- 履歴 -->
         <section class="view view--history" data-view="history">
           <div class="view__head">
             <h2 class="view__title">履歴</h2>
-            <div class="history-nav" id="historyNav">
-              <div class="history-nav__info">
-                <span class="history-nav__badge" id="historyBadge">最新</span>
-                <span class="history-nav__counter" id="historyCounter">0 / 0</span>
-              </div>
-              <div class="history-nav__btns">
-                <button class="btn history-nav__btn history-nav__btn--past" id="historyPastBtn" type="button" aria-label="過去（古い履歴）へ" title="過去（古い履歴）へ [↑]">
-                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
-                  <span class="history-nav__btn-label">過去</span>
-                </button>
-                <button class="btn history-nav__btn history-nav__btn--future" id="historyFutureBtn" type="button" aria-label="未来（新しい履歴）へ" title="未来（新しい履歴）へ [↓]">
-                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
-                  <span class="history-nav__btn-label">未来</span>
-                </button>
-              </div>
-            </div>
             <button class="btn btn--ghost btn--danger" id="historyClear" type="button">すべて削除</button>
           </div>
-
-          <div class="history-single" id="historySingle">
-            <div class="history-single__container" id="historyCardContainer"></div>
-          </div>
-          <div class="history-guide" id="historyGuide" hidden>
-            <span class="history-guide__item"><span class="history-guide__key">▲ / ↑</span> 過去へ（古い履歴）</span>
-            <span class="history-guide__sep">・</span>
-            <span class="history-guide__item"><span class="history-guide__key">▼ / ↓</span> 未来へ（新しい履歴）</span>
-          </div>
+          <ul class="history" id="historyList"></ul>
           <p class="empty" id="historyEmpty">履歴はまだありません。</p>
         </section>
 
