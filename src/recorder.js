@@ -1,4 +1,4 @@
-// 手動録音（プッシュ・トゥ・トーク用）: Web Audio API でマイク入力をキャプチャし、
+// 手動録音（プッシュ・トゥ・トーク用）: Web Audio API & MediaRecorder のデュアルキャプチャ
 // 16kHz Float32Array として切り出して返す。
 
 function resampleTo16k(input, fromRate) {
@@ -22,6 +22,8 @@ export class PttRecorder {
     this.stream = null;
     this.source = null;
     this.processor = null;
+    this.mediaRecorder = null;
+    this.mediaChunks = [];
     this.chunks = [];
     this.isRecording = false;
     this.startTime = 0;
@@ -29,8 +31,32 @@ export class PttRecorder {
     this.startPromise = null;
   }
 
+  // ユーザーの直接操作イベント（pointerdown等）の同期コンテキストで呼び出す
+  ensureAudioContext() {
+    if (!this.audioCtx || this.audioCtx.state === 'closed') {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      this.audioCtx = new AudioCtx();
+    }
+    if (this.audioCtx.state === 'suspended' || this.audioCtx.state === 'interrupted') {
+      this.audioCtx.resume().catch(() => {});
+    }
+    return this.audioCtx;
+  }
+
   async ensureStream() {
-    if (!this.stream || this.stream.getAudioTracks().every((t) => t.readyState === 'ended')) {
+    this.ensureAudioContext();
+
+    const isStreamAlive = (s) => {
+      if (!s || !s.active) return false;
+      const tracks = s.getAudioTracks();
+      if (tracks.length === 0) return false;
+      return tracks.some((t) => t.readyState === 'live');
+    };
+
+    if (!isStreamAlive(this.stream)) {
+      try {
+        this.stream?.getAudioTracks().forEach((t) => t.stop());
+      } catch (_) {}
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -40,22 +66,18 @@ export class PttRecorder {
         },
       });
     }
-    if (!this.audioCtx || this.audioCtx.state === 'closed') {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      this.audioCtx = new AudioCtx();
-    }
-    if (this.audioCtx.state === 'suspended') {
+
+    if (this.audioCtx.state === 'suspended' || this.audioCtx.state === 'interrupted') {
       await this.audioCtx.resume().catch(() => {});
     }
+
     return this.stream;
   }
 
   async warmup() {
     try {
+      this.ensureAudioContext();
       await this.ensureStream();
-      if (this.stream) {
-        this.stream.getAudioTracks().forEach((t) => (t.enabled = false));
-      }
     } catch (_) {}
   }
 
@@ -63,31 +85,63 @@ export class PttRecorder {
     this.userStartTime = userStartTime;
     if (this.startPromise) return this.startPromise;
     this.isRecording = true;
+    this.ensureAudioContext();
 
     this.startPromise = (async () => {
-      await this.ensureStream();
-      if (!this.isRecording) return; // 待機中にキャンセルされていた場合
-
-      this.stream.getAudioTracks().forEach((t) => (t.enabled = true));
-      this.chunks = [];
-      this.startTime = Date.now();
-
       try {
-        this.source?.disconnect();
-        this.processor?.disconnect();
-      } catch (_) {}
-
-      this.source = this.audioCtx.createMediaStreamSource(this.stream);
-      // 2048 サンプル（約42ms @ 48kHz）で高頻度にバッファを回収
-      this.processor = this.audioCtx.createScriptProcessor(2048, 1, 1);
-      this.processor.onaudioprocess = (e) => {
+        await this.ensureStream();
         if (!this.isRecording) return;
-        const input = e.inputBuffer.getChannelData(0);
-        this.chunks.push(new Float32Array(input));
-      };
 
-      this.source.connect(this.processor);
-      this.processor.connect(this.audioCtx.destination);
+        this.chunks = [];
+        this.mediaChunks = [];
+        this.startTime = Date.now();
+
+        // 1. ScriptProcessorNode による低遅延リアルタイム PCM キャプチャ
+        try {
+          this.source?.disconnect();
+          this.processor?.disconnect();
+        } catch (_) {}
+
+        this.source = this.audioCtx.createMediaStreamSource(this.stream);
+        // 2048 サンプル（約42ms @ 48kHz）
+        this.processor = this.audioCtx.createScriptProcessor(2048, 1, 1);
+        this.processor.onaudioprocess = (e) => {
+          if (!this.isRecording) return;
+          const input = e.inputBuffer.getChannelData(0);
+          this.chunks.push(new Float32Array(input));
+          // Safari の省電力パイプライン停止防止のため出力バッファをクリアして満たす
+          const output = e.outputBuffer.getChannelData(0);
+          output.fill(0);
+        };
+
+        this.source.connect(this.processor);
+        this.processor.connect(this.audioCtx.destination);
+
+        // 2. バックアップ系統: MediaRecorder による確実な音声キャプチャ (Safari/WebKit 対策)
+        if (typeof MediaRecorder !== 'undefined') {
+          try {
+            const mime = MediaRecorder.isTypeSupported('audio/webm')
+              ? 'audio/webm'
+              : MediaRecorder.isTypeSupported('audio/mp4')
+              ? 'audio/mp4'
+              : '';
+            const options = mime ? { mimeType: mime } : undefined;
+            this.mediaRecorder = new MediaRecorder(this.stream, options);
+            this.mediaRecorder.ondataavailable = (e) => {
+              if (e.data && e.data.size > 0) {
+                this.mediaChunks.push(e.data);
+              }
+            };
+            this.mediaRecorder.start(80);
+          } catch (mrErr) {
+            console.warn('MediaRecorder 起動スキップ:', mrErr);
+            this.mediaRecorder = null;
+          }
+        }
+      } catch (err) {
+        this.isRecording = false;
+        throw err;
+      }
     })();
 
     return this.startPromise;
@@ -96,29 +150,40 @@ export class PttRecorder {
   async stop(userEndTime = Date.now()) {
     if (!this.isRecording && !this.startPromise) return null;
 
+    let startError = null;
     if (this.startPromise) {
       try {
         await this.startPromise;
-      } catch (_) {}
+      } catch (e) {
+        startError = e;
+      }
       this.startPromise = null;
+    }
+
+    if (startError) {
+      this.cancel();
+      return { error: 'MIC_START_FAILED', message: startError.message };
     }
 
     if (!this.isRecording) return null;
     this.isRecording = false;
 
-    // トラックをミュート（省電力 & 不要な音声取得防止）
-    if (this.stream) {
-      this.stream.getAudioTracks().forEach((t) => (t.enabled = false));
-    }
-
     const pressDuration = this.userStartTime ? (userEndTime - this.userStartTime) / 1000 : 0;
 
-    // もし押下時間は十分なのにバッファがまだ届いていない場合、最初の1コマを待つ
-    if (this.chunks.length === 0 && pressDuration >= 0.1) {
-      await new Promise((r) => setTimeout(r, 60));
+    // MediaRecorder 停止待機
+    let mrStoppedPromise = null;
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      mrStoppedPromise = new Promise((resolve) => {
+        this.mediaRecorder.onstop = () => resolve();
+        try {
+          this.mediaRecorder.stop();
+        } catch (_) {
+          resolve();
+        }
+      });
     }
 
-    // ノード切断
+    // Web Audio ノード切断
     try {
       this.source?.disconnect();
       this.processor?.disconnect();
@@ -126,42 +191,89 @@ export class PttRecorder {
     this.source = null;
     this.processor = null;
 
-    if (this.chunks.length === 0) return null;
-
-    // 全チャンクを結合
-    let totalLen = 0;
-    for (const c of this.chunks) totalLen += c.length;
-    const merged = new Float32Array(totalLen);
-    let offset = 0;
-    for (const c of this.chunks) {
-      merged.set(c, offset);
-      offset += c.length;
+    if (mrStoppedPromise) {
+      await Promise.race([mrStoppedPromise, new Promise((r) => setTimeout(r, 200))]);
     }
-    this.chunks = [];
 
-    // 16kHz にリサンプリング
-    const sampleRate = this.audioCtx ? this.audioCtx.sampleRate : 48000;
-    const audio16k = resampleTo16k(merged, sampleRate);
+    // 1. ScriptProcessor から PCM チャンクが取れている場合（最速パス）
+    if (this.chunks.length > 0) {
+      let totalLen = 0;
+      for (const c of this.chunks) totalLen += c.length;
+      const merged = new Float32Array(totalLen);
+      let offset = 0;
+      for (const c of this.chunks) {
+        merged.set(c, offset);
+        offset += c.length;
+      }
+      this.chunks = [];
+      this.mediaChunks = [];
 
-    // 最大30秒でクリップ
-    const maxSamples = 16000 * 30;
-    const finalAudio = audio16k.length > maxSamples ? audio16k.slice(0, maxSamples) : audio16k;
+      const sampleRate = this.audioCtx ? this.audioCtx.sampleRate : 48000;
+      const audio16k = resampleTo16k(merged, sampleRate);
+      const maxSamples = 16000 * 30;
+      const finalAudio = audio16k.length > maxSamples ? audio16k.slice(0, maxSamples) : audio16k;
 
-    const micDuration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
-    const effectiveSeconds = Math.max(pressDuration, micDuration, +(finalAudio.length / 16000));
+      const micDuration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
+      const effectiveSeconds = Math.max(pressDuration, micDuration, +(finalAudio.length / 16000));
 
-    return {
-      audio: finalAudio,
-      seconds: +effectiveSeconds.toFixed(2),
-    };
+      return {
+        audio: finalAudio,
+        seconds: +effectiveSeconds.toFixed(2),
+        chunksCount: merged.length,
+        sourceType: 'pcm',
+      };
+    }
+
+    // 2. ScriptProcessor が空で、MediaRecorder からデータが取れている場合（WebKit救済パス）
+    if (this.mediaChunks.length > 0) {
+      try {
+        const mime = this.mediaRecorder?.mimeType || 'audio/mp4';
+        const blob = new Blob(this.mediaChunks, { type: mime });
+        this.mediaChunks = [];
+
+        this.ensureAudioContext();
+        const arrayBuf = await blob.arrayBuffer();
+        const audioBuf = await this.audioCtx.decodeAudioData(arrayBuf);
+        const pcmChannel = audioBuf.getChannelData(0);
+        const audio16k = resampleTo16k(pcmChannel, audioBuf.sampleRate);
+        const maxSamples = 16000 * 30;
+        const finalAudio = audio16k.length > maxSamples ? audio16k.slice(0, maxSamples) : audio16k;
+
+        const effectiveSeconds = Math.max(pressDuration, +(finalAudio.length / 16000));
+        return {
+          audio: finalAudio,
+          seconds: +effectiveSeconds.toFixed(2),
+          chunksCount: finalAudio.length,
+          sourceType: 'media_recorder',
+        };
+      } catch (decodeErr) {
+        console.warn('MediaRecorder デコード失敗:', decodeErr);
+      }
+    }
+
+    // 3. どちらからも取れなかった場合
+    if (pressDuration >= 0.25) {
+      // 0.25秒以上押されていたのに音声が来ない場合はマイクスタックとみなし、次回のためリセット
+      this.destroy();
+      return {
+        error: 'MIC_NO_AUDIO',
+        pressDuration,
+      };
+    }
+
+    return null;
   }
 
   cancel() {
     this.isRecording = false;
     this.startPromise = null;
-    if (this.stream) {
-      this.stream.getAudioTracks().forEach((t) => (t.enabled = false));
-    }
+    try {
+      if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+        this.mediaRecorder.stop();
+      }
+    } catch (_) {}
+    this.mediaRecorder = null;
+    this.mediaChunks = [];
     try {
       this.source?.disconnect();
       this.processor?.disconnect();

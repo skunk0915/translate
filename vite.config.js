@@ -44,6 +44,8 @@ export default defineConfig({
         // Workbox 側では HuggingFace へのリクエストを一切扱わない。
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
+        skipWaiting: true,
+        clientsClaim: true,
       },
     }),
   ],
