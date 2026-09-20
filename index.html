@@ -21,7 +21,7 @@
         </div>
         <button class="pair" id="pairButton" type="button" aria-label="言語ペアを変更">
           <span class="pair__lang" id="pairA">🇯🇵</span>
-          <span class="pair__arrow" aria-hidden="true">⇄</span>
+          <span class="pair__arrow" id="pairArrow" aria-hidden="true" title="入れ替え">⇄</span>
           <span class="pair__lang" id="pairB">🇺🇸</span>
         </button>
         <button class="mode" id="modeChip" type="button" data-mode="offline" aria-label="翻訳モードを変更">オフライン</button>
@@ -49,7 +49,28 @@
             <button class="btn btn--small" type="button" id="micBannerAction">再試行</button>
           </div>
 
+          <!-- 会話ナビゲーション（前後のめくり） -->
+          <div class="talk-nav" id="talkNav" hidden>
+            <div class="talk-nav__inner">
+              <div class="talk-nav__info">
+                <span class="talk-nav__badge" id="talkBadge">最新</span>
+                <span class="talk-nav__counter" id="talkCounter">0 / 0</span>
+              </div>
+              <div class="talk-nav__btns">
+                <button class="btn talk-nav__btn talk-nav__btn--past" id="talkPastBtn" type="button" aria-label="過去（古い会話）へ" title="過去（古い会話）へ [↑]">
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+                  <span class="talk-nav__btn-label">過去</span>
+                </button>
+                <button class="btn talk-nav__btn talk-nav__btn--future" id="talkFutureBtn" type="button" aria-label="未来（新しい会話）へ" title="未来（新しい会話）へ [↓]">
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                  <span class="talk-nav__btn-label">未来</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div class="conversation" id="conversation" aria-live="polite">
+            <div class="conversation__single" id="talkCardContainer"></div>
             <div class="conversation__empty" id="conversationEmpty">
               <p class="conversation__hint" id="conversationHint">ボタンを長押ししながら話してください。指を離すと即座に翻訳します。</p>
               <p class="conversation__hint conversation__hint--sub" id="conversationHintSub">マイク（自動認識）または左右の言語ボタンを長押しできます。</p>
@@ -83,13 +104,37 @@
           </div>
         </section>
 
-        <!-- 履歴 -->
+        <!-- 履歴（1件表示 & 上下ナビゲーション） -->
         <section class="view view--history" data-view="history">
           <div class="view__head">
             <h2 class="view__title">履歴</h2>
+            <div class="history-nav" id="historyNav">
+              <div class="history-nav__info">
+                <span class="history-nav__badge" id="historyBadge">最新</span>
+                <span class="history-nav__counter" id="historyCounter">0 / 0</span>
+              </div>
+              <div class="history-nav__btns">
+                <button class="btn history-nav__btn history-nav__btn--past" id="historyPastBtn" type="button" aria-label="過去（古い履歴）へ" title="過去（古い履歴）へ [↑]">
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+                  <span class="history-nav__btn-label">過去</span>
+                </button>
+                <button class="btn history-nav__btn history-nav__btn--future" id="historyFutureBtn" type="button" aria-label="未来（新しい履歴）へ" title="未来（新しい履歴）へ [↓]">
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                  <span class="history-nav__btn-label">未来</span>
+                </button>
+              </div>
+            </div>
             <button class="btn btn--ghost btn--danger" id="historyClear" type="button">すべて削除</button>
           </div>
-          <ul class="history" id="historyList"></ul>
+
+          <div class="history-single" id="historySingle">
+            <div class="history-single__container" id="historyCardContainer"></div>
+          </div>
+          <div class="history-guide" id="historyGuide" hidden>
+            <span class="history-guide__item"><span class="history-guide__key">▲ / ↑</span> 過去へ（古い履歴）</span>
+            <span class="history-guide__sep">・</span>
+            <span class="history-guide__item"><span class="history-guide__key">▼ / ↓</span> 未来へ（新しい履歴）</span>
+          </div>
           <p class="empty" id="historyEmpty">履歴はまだありません。</p>
         </section>
 
@@ -153,6 +198,38 @@
               </label>
             </div>
             <p class="note" id="pairNote"></p>
+          </section>
+
+          <section class="card" id="fontSizeCard">
+            <h3 class="card__title">文字サイズ</h3>
+            <p class="card__desc">会話画面や履歴画面での「原文」と「翻訳結果」の文字サイズを調整します。</p>
+            <div class="field-row">
+              <label class="field">
+                <span class="field__label">原文の文字サイズ</span>
+                <select id="srcFontSize" class="select" aria-label="原文の文字サイズ">
+                  <option value="small">小（小さめ・12px）</option>
+                  <option value="medium">標準（標準・14px）</option>
+                  <option value="large">大（大きめ・17px）</option>
+                  <option value="xlarge">特大（特大・20px）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="field__label">翻訳結果の文字サイズ</span>
+                <select id="dstFontSize" class="select" aria-label="翻訳結果の文字サイズ">
+                  <option value="small">小（小さめ・18px）</option>
+                  <option value="medium">標準（標準・22px）</option>
+                  <option value="large">大（大きめ・26px）</option>
+                  <option value="xlarge">特大（特大・32px）</option>
+                </select>
+              </label>
+            </div>
+            <div class="font-preview" aria-hidden="true">
+              <span class="font-preview__header">表示プレビュー</span>
+              <div class="font-preview__box">
+                <p class="font-preview__src">こんにちは、お元気ですか？（原文）</p>
+                <p class="font-preview__dst">Hello, how are you?（翻訳）</p>
+              </div>
+            </div>
           </section>
 
           <section class="card">
@@ -292,6 +369,35 @@
               <button class="btn btn--primary auth-modal__submit" id="authSubmit" type="submit">ログイン</button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <!-- クイック言語切り替えモーダル -->
+      <div class="lang-modal" id="langModal" hidden>
+        <div class="lang-modal__backdrop" id="langModalBackdrop"></div>
+        <div class="lang-modal__sheet" role="dialog" aria-modal="true" aria-label="言語の切り替え">
+          <header class="lang-modal__head">
+            <div class="lang-modal__tabs">
+              <button class="lang-modal__tab is-active" id="langModalTabA" type="button">
+                <span class="lang-modal__tab-role">言語 A</span>
+                <span class="lang-modal__tab-val" id="langModalValA">🇯🇵 日本語</span>
+              </button>
+              <button class="lang-modal__swap" id="langModalSwap" type="button" aria-label="言語Aと言語Bを入れ替える" title="入れ替え">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/></svg>
+              </button>
+              <button class="lang-modal__tab" id="langModalTabB" type="button">
+                <span class="lang-modal__tab-role">言語 B</span>
+                <span class="lang-modal__tab-val" id="langModalValB">🇺🇸 英語</span>
+              </button>
+            </div>
+            <button class="btn btn--icon lang-modal__close" id="langModalClose" type="button" aria-label="閉じる">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
+          </header>
+          <div class="lang-modal__body">
+            <div class="lang-modal__hint" id="langModalHint">言語 A を選択してください</div>
+            <div class="lang-modal__grid" id="langModalGrid"></div>
+          </div>
         </div>
       </div>
 
