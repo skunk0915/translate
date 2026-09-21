@@ -328,21 +328,57 @@
         <div class="auth-modal__backdrop"></div>
         <div class="auth-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
           <div class="auth-modal__head">
-            <h2 class="auth-modal__title" id="authTitle">ログイン</h2>
-            <p class="auth-modal__desc">履歴の同期と保存を行うため、アカウントでログインしてください。</p>
+            <div class="auth-modal__icon-badge" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+                <path fill="currentColor" d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
+              </svg>
+            </div>
+            <h2 class="auth-modal__title" id="authTitle">アカウントログイン</h2>
+            <p class="auth-modal__desc">履歴をサーバーと同期・保存するためログインしてください。</p>
           </div>
-          <form class="auth-modal__form" id="authForm">
-            <label class="field">
-              <span class="field__label">ユーザー名</span>
-              <input class="composer__input auth-modal__input" id="authUsername" type="text" autocomplete="username" required placeholder="mizy" value="mizy" />
-            </label>
-            <label class="field">
-              <span class="field__label">パスワード</span>
-              <input class="composer__input auth-modal__input" id="authPassword" type="password" autocomplete="current-password" required placeholder="パスワードを入力" />
-            </label>
+          <form class="auth-modal__form" id="authForm" novalidate>
+            <div class="auth-field">
+              <label class="auth-field__label" for="authUsername">ユーザー名</label>
+              <div class="auth-field__control">
+                <span class="auth-field__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                  </svg>
+                </span>
+                <input class="auth-field__input" id="authUsername" type="text" autocomplete="username" required placeholder="ユーザー名" value="mizy" />
+              </div>
+            </div>
+            <div class="auth-field">
+              <label class="auth-field__label" for="authPassword">パスワード</label>
+              <div class="auth-field__control">
+                <span class="auth-field__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path fill="currentColor" d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>
+                  </svg>
+                </span>
+                <input class="auth-field__input auth-field__input--password" id="authPassword" type="password" autocomplete="current-password" required placeholder="パスワード" value="mizy" />
+                <button class="auth-field__toggle-pwd" id="authTogglePwd" type="button" aria-label="パスワードを表示" title="パスワードを表示">
+                  <svg class="auth-field__pwd-icon auth-field__pwd-icon--show" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                  </svg>
+                  <svg class="auth-field__pwd-icon auth-field__pwd-icon--hide" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" hidden>
+                    <path fill="currentColor" d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.44-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78 3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="auth-modal__hint">
+              <span class="auth-modal__hint-dot"></span>
+              初期設定アカウント情報（mizy / mizy）があらかじめ入力されています
+            </div>
             <p class="auth-modal__error" id="authError" hidden></p>
             <div class="auth-modal__actions">
-              <button class="btn btn--primary auth-modal__submit" id="authSubmit" type="submit">ログイン</button>
+              <button class="btn btn--primary auth-modal__submit" id="authSubmit" type="submit">
+                <span>ログイン</span>
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d="m14 7-1.41 1.41L16.17 12H4v2h12.17l-3.58 3.59L14 19l6-6-6-6z"/>
+                </svg>
+              </button>
             </div>
           </form>
         </div>

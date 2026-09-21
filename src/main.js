@@ -142,6 +142,7 @@ const el = {
   authForm: $('authForm'),
   authUsername: $('authUsername'),
   authPassword: $('authPassword'),
+  authTogglePwd: $('authTogglePwd'),
   authError: $('authError'),
   authSubmit: $('authSubmit'),
   accountUser: $('accountUser'),
@@ -2789,9 +2790,24 @@ function updateAuthUI() {
     el.authModal.hidden = true;
   } else {
     el.authModal.hidden = false;
-    el.authPassword.value = '';
+    if (!el.authUsername.value) el.authUsername.value = 'mizy';
+    if (!el.authPassword.value) el.authPassword.value = 'mizy';
     el.authError.hidden = true;
   }
+}
+
+if (el.authTogglePwd && el.authPassword) {
+  el.authTogglePwd.addEventListener('click', () => {
+    const isPwd = el.authPassword.type === 'password';
+    el.authPassword.type = isPwd ? 'text' : 'password';
+    const showIcon = el.authTogglePwd.querySelector('.auth-field__pwd-icon--show');
+    const hideIcon = el.authTogglePwd.querySelector('.auth-field__pwd-icon--hide');
+    if (showIcon) showIcon.hidden = isPwd;
+    if (hideIcon) hideIcon.hidden = !isPwd;
+    const label = isPwd ? 'パスワードを隠す' : 'パスワードを表示';
+    el.authTogglePwd.setAttribute('aria-label', label);
+    el.authTogglePwd.setAttribute('title', label);
+  });
 }
 
 el.authForm.addEventListener('submit', async (e) => {
