@@ -1412,7 +1412,7 @@ function bubbleEl(entry, index = 0, total = 1, isFocused = false) {
       </div>
     </div>
     <div class="bubble__dst-row">
-      <p class="bubble__dst" tabindex="0" role="button" aria-label="タップでコピー、長押しで編集" title="タップでコピー、長押しで編集"></p>
+      <p class="bubble__dst"></p>
       <button class="btn btn--icon btn--ghost bubble__copy-btn" type="button" data-action="copy-dst" aria-label="翻訳文をコピー" title="翻訳文をコピー">
         ${COPY_ICON_SVG}
       </button>
@@ -1617,14 +1617,7 @@ function bubbleEl(entry, index = 0, total = 1, isFocused = false) {
   cancelBtn.addEventListener('click', closeEditor);
 
   bindLongPress(art, () => openEditor('longpress'), {
-    ignoreSelector: 'button, textarea, input, select, a',
-    onTap: (e) => {
-      if (e?.target?.closest('.bubble__src')) {
-        copyTextWithFeedback(copySrcBtn, entry.srcText, '原文');
-      } else {
-        copyTextWithFeedback(copyDstBtn, entry.dstText, '翻訳文');
-      }
-    },
+    ignoreSelector: 'button, textarea, input, select, a, [data-action]',
     onStart: (e) => {
       if (e.target.closest('.bubble__dst')) {
         dstEl.classList.add('bubble__dst--pressing');
@@ -1937,7 +1930,7 @@ function createHistoryCard(entry) {
       <span class="history__langs">${src.flag} ${src.name} → ${dst.flag} ${dst.name}</span>
     </div>
     <div class="history__src-row">
-      <p class="history__src" tabindex="0" role="button" aria-label="タップでコピー、長押しで編集" title="タップでコピー、長押しまたは編集ボタンで編集"></p>
+      <p class="history__src"></p>
       <button class="btn btn--icon btn--ghost history__copy-btn" type="button" data-action="copy-src" aria-label="原文をコピー" title="原文をコピー">
         ${COPY_ICON_SVG}
       </button>
@@ -1950,7 +1943,7 @@ function createHistoryCard(entry) {
       </div>
     </div>
     <div class="history__dst-row">
-      <p class="history__dst" tabindex="0" role="button" aria-label="タップでコピー、長押しで編集" title="タップでコピー、長押しまたは編集ボタンで編集"></p>
+      <p class="history__dst"></p>
       <button class="btn btn--icon btn--ghost history__copy-btn" type="button" data-action="copy-dst" aria-label="翻訳文をコピー" title="翻訳文をコピー">
         ${COPY_ICON_SVG}
       </button>
@@ -2130,18 +2123,16 @@ function createHistoryCard(entry) {
   editBtn.addEventListener('click', () => openEditor('button'));
   cancelBtn.addEventListener('click', closeEditor);
 
-  // 原文タップでコピー、長押しで編集
+  // 原文長押しで編集
   bindLongPress(srcEl, () => openEditor('longpress-src'), {
     ignoreSelector: 'button, textarea, input, select, a',
-    onTap: () => copyTextWithFeedback(copySrcBtn, entry.srcText, '原文'),
     onStart: () => srcEl.classList.add('history__src--pressing'),
     onEnd: () => srcEl.classList.remove('history__src--pressing'),
   });
 
-  // 翻訳文タップでコピー、長押しで編集
+  // 翻訳文長押しで編集
   bindLongPress(dstEl, () => openEditor('longpress-dst'), {
     ignoreSelector: 'button, textarea, input, select, a',
-    onTap: () => copyTextWithFeedback(copyDstBtn, entry.dstText, '翻訳文'),
     onStart: () => dstEl.classList.add('history__dst--pressing'),
     onEnd: () => dstEl.classList.remove('history__dst--pressing'),
   });

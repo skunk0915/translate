@@ -424,3 +424,12 @@ AI: 会話カード（.bubble）および履歴カード（.history__item）下�
 - package.json
 - styles/main.scss
 - README.md
+
+2026-09-21 08:45:05
+USER: 原文、翻訳文押してコピー機能廃止
+AI: 原文・翻訳文および追加言語翻訳の文章テキスト本体をタップした際にコピーが発火する機能を廃止し、専用コピーボタンのみでコピーを行う仕様へと整理しました。(1) 会話カード（.bubble）および履歴カード（.history__item）、多言語追加翻訳（.bubble__extra, .history__extra）の原文・翻訳文テキストから、タップ時コピーのイベントリスナー（bindLongPress の onTap コールバック、click リスナー）および button ロール属性（role="button", tabindex, title="タップでコピー" 等）を完全削除。(2) コピー操作は各テキスト右横に配置されている専用コピーボタン（.bubble__copy-btn, .history__copy-btn, [data-action="copy-extra"]）に一本化し、文章を押しても誤ってコピーされないようにしました。(3) 会話カード（.bubble）のクリック判定において文章要素（.bubble__src, .bubble__dst）の除外を解除し、カード内のどこをタップしてもカード全体がフォーカス表示（1件表示）に切り替わるように改善（テキスト範囲選択ドラッグ時は除外）。(4) styles/main.scss において文章テキストから cursor: pointer、:hover、:active、:focus-visible 等のアクション演出を削除し、押しても何も起きない要素に hover エフェクトを与えないルールに準拠した通常テキスト表示（user-select: text）に最適化。(5) package.json（1.1.2）および README.md を更新し、カゴヤVPSへ本番デプロイ完了。
+編集したファイルパス:
+- package.json
+- src/main.js
+- styles/main.scss
+- README.md
