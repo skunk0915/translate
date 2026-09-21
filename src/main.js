@@ -363,8 +363,8 @@ function loadModel(entry) {
   progress.set(entry.key, { files: new Map() });
   renderModelList();
   const type = entry.kind === 'whisper' ? 'loadWhisper' : 'loadMT';
-  log.info('モデル読込開始', { key: entry.key, id: entry.id, device: settings.device });
-  if (!useOnline() && !listening && !busy) setStatus('loading', `${entry.label} を読込中…`);
+  const label = entry.label || (entry.dir ? `${entry.dir} 翻訳モデル` : entry.id || entry.key || 'モデル');
+  if (!useOnline() && !listening && !busy) setStatus('loading', `${label} を読込中…`);
   markLoading(entry.key);
   worker.postMessage({ type, key: entry.key, id: entry.id, device: settings.device });
   return promise;

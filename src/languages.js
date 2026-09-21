@@ -82,7 +82,10 @@ export const mtKey = (dir) => `mt:${MT_MODELS[dir].id}`;
 
 function step(dir) {
   const m = MT_MODELS[dir];
-  return { dir, key: mtKey(dir), id: m.id, sizeMB: m.sizeMB };
+  const [ms, md] = dir.split('>');
+  const srcName = LANGUAGES[ms]?.name ?? ms;
+  const dstName = LANGUAGES[md]?.name ?? md;
+  return { dir, key: mtKey(dir), id: m.id, sizeMB: m.sizeMB, label: `翻訳 ${srcName} → ${dstName}` };
 }
 
 // src→dst の翻訳経路。直接モデルがあれば1段、無ければ英語を経由して2段。無理なら null。
