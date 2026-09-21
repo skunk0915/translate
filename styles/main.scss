@@ -739,55 +739,61 @@ button {
   &__extras {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--line);
+    gap: 10px;
+    margin-top: 6px;
   }
-  &__extra {
-    background: var(--bg-sunken);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-sm);
-    padding: 6px 8px;
+  &__extra-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+  }
+  &__extra-main {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 2px;
 
-    &-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 6px;
+    .bubble__dst {
+      margin: 0;
     }
-    &-lang {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--fg-muted);
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
-    &-actions {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    &-btn {
-      height: 26px;
-      padding: 0 8px;
-      font-size: 11px;
-      gap: 4px;
+  }
+  &__extra-lang {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    line-height: 1.2;
+  }
+  &__extra-side {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+
+    .btn {
+      width: 28px;
+      height: 28px;
+      min-width: 28px;
+      min-height: 28px;
+      padding: 0;
+      border-radius: var(--radius-sm);
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      cursor: pointer;
       color: var(--fg-muted);
-      border-radius: var(--radius-sm);
+      background: transparent;
+      border: none;
+      cursor: pointer;
       transition: background 0.15s, color 0.15s, transform 0.1s;
 
       svg {
-        width: 14px;
-        height: 14px;
+        width: 15px;
+        height: 15px;
         flex-shrink: 0;
       }
 
@@ -799,7 +805,7 @@ button {
       }
 
       &:active {
-        transform: scale(0.94);
+        transform: scale(0.92);
       }
 
       &.is-copied {
@@ -807,35 +813,14 @@ button {
         background: color-mix(in srgb, var(--accent) 15%, transparent);
       }
 
-      &--danger {
+      &.btn--danger {
         color: var(--danger, #e5484d);
         @media (hover: hover) {
           &:hover {
+            color: var(--danger, #e5484d);
             background: color-mix(in srgb, var(--danger, #e5484d) 10%, transparent);
           }
         }
-      }
-    }
-    &-text {
-      margin: 2px 0 0;
-      font-size: 15px;
-      font-weight: 600;
-      line-height: 1.35;
-      color: var(--fg);
-      word-break: break-word;
-      cursor: pointer;
-      border-radius: var(--radius-sm);
-      padding: 2px 4px;
-      margin: 0 -4px;
-      transition: background 0.15s;
-
-      @media (hover: hover) {
-        &:hover {
-          background: color-mix(in srgb, var(--accent) 8%, transparent);
-        }
-      }
-      &:active {
-        background: color-mix(in srgb, var(--accent) 15%, transparent);
       }
     }
   }
@@ -1425,54 +1410,73 @@ button {
   &__extras {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--line);
+    gap: 10px;
+    margin-top: 6px;
   }
-
-  &__extra {
-    background: var(--bg-sunken);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-sm);
-    padding: 8px 10px;
+  &__extra-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+  }
+  &__extra-main {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
+    gap: 2px;
+
+    .history__dst {
+      margin: 0;
+    }
+  }
+  &__extra-lang {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    line-height: 1.2;
+  }
+  &__extra-side {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
     gap: 4px;
 
-    &-head {
-      display: flex;
+    .btn {
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      min-height: 32px;
+      padding: 0;
+      border-radius: var(--radius-sm);
+      display: inline-flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 6px;
-    }
-
-    &-lang {
-      font-size: 11px;
-      font-weight: 600;
+      justify-content: center;
       color: var(--fg-muted);
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    &-actions {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    &-btn {
-      height: 26px;
-      padding: 0 8px;
-      font-size: 11px;
-      gap: 4px;
-      display: inline-flex;
-      align-items: center;
+      background: transparent;
+      border: none;
+      cursor: pointer;
       transition: background 0.15s, color 0.15s, transform 0.1s;
 
+      svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+      }
+
+      @media (hover: hover) {
+        &:hover {
+          color: var(--accent);
+          background: color-mix(in srgb, var(--accent) 10%, transparent);
+        }
+      }
+
       &:active {
-        transform: scale(0.94);
+        transform: scale(0.92);
       }
 
       &.is-copied {
@@ -1480,36 +1484,14 @@ button {
         background: color-mix(in srgb, var(--accent) 15%, transparent);
       }
 
-      &--danger {
+      &.btn--danger {
         color: var(--danger, #e5484d);
         @media (hover: hover) {
           &:hover {
+            color: var(--danger, #e5484d);
             background: color-mix(in srgb, var(--danger, #e5484d) 10%, transparent);
           }
         }
-      }
-    }
-
-    &-text {
-      margin: 2px 0 0;
-      font-size: 16px;
-      font-weight: 600;
-      line-height: 1.35;
-      color: var(--fg);
-      word-break: break-word;
-      cursor: pointer;
-      border-radius: var(--radius-sm);
-      padding: 2px 4px;
-      margin: 0 -4px;
-      transition: background 0.15s;
-
-      @media (hover: hover) {
-        &:hover {
-          background: color-mix(in srgb, var(--accent) 8%, transparent);
-        }
-      }
-      &:active {
-        background: color-mix(in srgb, var(--accent) 15%, transparent);
       }
     }
   }

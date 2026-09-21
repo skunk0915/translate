@@ -1285,35 +1285,28 @@ function renderBubbleExtras(container, entry, onUpdate) {
     const extra = extras[i];
     const langInfo = LANGUAGES[extra.lang] ?? { flag: '🌐', name: extra.lang };
     const item = document.createElement('div');
-    item.className = 'bubble__extra';
+    item.className = 'bubble__extra-row';
     item.innerHTML = `
-      <div class="bubble__extra-head">
+      <div class="bubble__extra-main">
         <span class="bubble__extra-lang">${langInfo.flag} ${langInfo.name}</span>
-        <div class="bubble__extra-actions">
-          <button class="btn btn--ghost btn--small bubble__extra-btn" type="button" data-action="copy-extra" aria-label="${langInfo.name}の翻訳をコピー" title="コピー">
-            ${COPY_ICON_SVG}
-            <span>コピー</span>
-          </button>
-          <button class="btn btn--ghost btn--small bubble__extra-btn bubble__extra-speak" type="button" data-action="speak-extra" aria-label="${langInfo.name}を読み上げ" title="読み上げ">
-            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
-            <span>読み上げ</span>
-          </button>
-          <button class="btn btn--ghost btn--small btn--danger bubble__extra-btn" type="button" data-action="delete-extra" aria-label="${langInfo.name}の翻訳を削除" title="削除">
-            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-          </button>
-        </div>
+        <p class="bubble__dst bubble__extra-text"></p>
       </div>
-      <p class="bubble__extra-text"></p>
+      <div class="bubble__extra-side">
+        <button class="btn btn--icon btn--ghost bubble__copy-btn" type="button" data-action="copy-extra" aria-label="${langInfo.name}の翻訳をコピー" title="${langInfo.name}の翻訳をコピー">
+          ${COPY_ICON_SVG}
+        </button>
+        <button class="btn btn--icon btn--ghost bubble__speak-btn" type="button" data-action="speak-extra" aria-label="${langInfo.name}を読み上げ" title="読み上げ">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
+        </button>
+        <button class="btn btn--icon btn--ghost btn--danger bubble__delete-btn" type="button" data-action="delete-extra" aria-label="${langInfo.name}の翻訳を削除" title="削除">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
     `;
     const extraTextEl = item.querySelector('.bubble__extra-text');
     extraTextEl.textContent = extra.text;
-    extraTextEl.setAttribute('tabindex', '0');
-    extraTextEl.setAttribute('role', 'button');
-    extraTextEl.setAttribute('title', 'タップでコピー');
-    extraTextEl.setAttribute('aria-label', `${langInfo.name}の翻訳をタップでコピー`);
     const copyExtraBtn = item.querySelector('[data-action="copy-extra"]');
     copyExtraBtn.addEventListener('click', () => copyTextWithFeedback(copyExtraBtn, extra.text, `${langInfo.name}の翻訳`));
-    extraTextEl.addEventListener('click', () => copyTextWithFeedback(copyExtraBtn, extra.text, `${langInfo.name}の翻訳`));
     item.querySelector('[data-action="speak-extra"]').addEventListener('click', () => speakText(extra.text, extra.lang));
     item.querySelector('[data-action="delete-extra"]').addEventListener('click', async () => {
       if (!confirm(`${langInfo.name}の翻訳を削除します。よろしいですか？`)) return;
@@ -1341,35 +1334,28 @@ function renderHistoryExtras(container, entry, onUpdate) {
     const extra = extras[i];
     const langInfo = LANGUAGES[extra.lang] ?? { flag: '🌐', name: extra.lang };
     const item = document.createElement('div');
-    item.className = 'history__extra';
+    item.className = 'history__extra-row';
     item.innerHTML = `
-      <div class="history__extra-head">
+      <div class="history__extra-main">
         <span class="history__extra-lang">${langInfo.flag} ${langInfo.name}</span>
-        <div class="history__extra-actions">
-          <button class="btn btn--ghost btn--small history__extra-btn" type="button" data-action="copy-extra" aria-label="${langInfo.name}の翻訳をコピー" title="コピー">
-            ${COPY_ICON_SVG}
-            <span>コピー</span>
-          </button>
-          <button class="btn btn--ghost btn--small history__extra-btn" type="button" data-action="speak-extra" aria-label="${langInfo.name}を読み上げ" title="読み上げ">
-            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
-            <span>読み上げ</span>
-          </button>
-          <button class="btn btn--ghost btn--small btn--danger history__extra-btn" type="button" data-action="delete-extra" aria-label="${langInfo.name}の翻訳を削除" title="削除">
-            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-          </button>
-        </div>
+        <p class="history__dst history__extra-text"></p>
       </div>
-      <p class="history__extra-text"></p>
+      <div class="history__extra-side">
+        <button class="btn btn--icon btn--ghost history__copy-btn" type="button" data-action="copy-extra" aria-label="${langInfo.name}の翻訳をコピー" title="${langInfo.name}の翻訳をコピー">
+          ${COPY_ICON_SVG}
+        </button>
+        <button class="btn btn--icon btn--ghost history__speak-btn" type="button" data-action="speak-extra" aria-label="${langInfo.name}を読み上げ" title="読み上げ">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
+        </button>
+        <button class="btn btn--icon btn--ghost btn--danger history__delete-btn" type="button" data-action="delete-extra" aria-label="${langInfo.name}の翻訳を削除" title="削除">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
     `;
     const extraTextEl = item.querySelector('.history__extra-text');
     extraTextEl.textContent = extra.text;
-    extraTextEl.setAttribute('tabindex', '0');
-    extraTextEl.setAttribute('role', 'button');
-    extraTextEl.setAttribute('title', 'タップでコピー');
-    extraTextEl.setAttribute('aria-label', `${langInfo.name}の翻訳をタップでコピー`);
     const copyExtraBtn = item.querySelector('[data-action="copy-extra"]');
     copyExtraBtn.addEventListener('click', () => copyTextWithFeedback(copyExtraBtn, extra.text, `${langInfo.name}の翻訳`));
-    extraTextEl.addEventListener('click', () => copyTextWithFeedback(copyExtraBtn, extra.text, `${langInfo.name}の翻訳`));
     item.querySelector('[data-action="speak-extra"]').addEventListener('click', () => speakText(extra.text, extra.lang));
     item.querySelector('[data-action="delete-extra"]').addEventListener('click', async () => {
       if (!confirm(`${langInfo.name}の翻訳を削除します。よろしいですか？`)) return;

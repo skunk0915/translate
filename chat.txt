@@ -433,3 +433,12 @@ AI: 原文・翻訳文および追加言語翻訳の文章テキスト本体を�
 - src/main.js
 - styles/main.scss
 - README.md
+
+2026-09-21 08:55:50
+USER: 別言語の翻訳はデフォルトの翻訳と同じデザインでデフォルト翻訳の下に並べる
+AI: 別言語（追加言語）の翻訳表示を、背景色やボーダーで囲んだ子カード（.bubble__extra）形式から、デフォルトの翻訳（.bubble__dst-row）と完全に同じタイポグラフィ・レイアウトでデフォルト翻訳の直下に並ぶデザインへと刷新しました。(1) src/main.js の renderBubbleExtras および renderHistoryExtras において、各追加言語の表示構造を .bubble__extra-row / .history__extra-row に刷新。テキスト要素に .bubble__dst / .history__dst クラスを適用し、設定画面で変更できる翻訳結果の文字サイズ（--font-dst-bubble / --font-dst-history）、太字ウェイト、行高、文字色をデフォルト翻訳と100%統一。(2) テキスト直上に言語バッジ（国旗＋言語名）を配置し、右横にデフォルト翻訳と同様のアイコンボタン群（専用コピーボタン、読み上げボタン、削除ボタン）を整然と整列。(3) styles/main.scss において余計な背景色（var(--bg-sunken)）や外枠ボーダーを撤廃し、デフォルト翻訳のすぐ下に自然な間隔（gap: 10px）で整然と連続して並ぶようにスタイルを定義。(4) package.json（1.1.3）および README.md を更新し、カゴヤVPSへ本番デプロイ完了。
+編集したファイルパス:
+- package.json
+- src/main.js
+- styles/main.scss
+- README.md
