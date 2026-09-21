@@ -416,3 +416,11 @@ AI: 会話画面（トークビュー）において、全会話カードが履�
 - src/main.js
 - styles/main.scss
 - README.md
+
+2026-09-21 08:42:15
+USER: 各履歴内のボタンがはみ出してて押せない /Users/outward/.tsunagi/inbox/1789947587182-0-IMG_7893.png
+AI: 会話カード（.bubble）および履歴カード（.history__item）下部のアクションボタン群において、ボタン4つの合計幅がモバイル端末のカード横幅を超過した際に右寄せ（flex-end）によって左端の「拡大表示」ボタンがカード外へ突き抜けて見切れてしまう不具合を解消しました。(1) styles/main.scss の .bubble__actions および .history__actions に flex-wrap: wrap を適用し、横幅超過時に自動で折り返すように改修。(2) 左側に表示モード切り替え（.bubble__focus-btn：拡大表示／一覧に戻る）、右側に各種操作ボタン（別の言語での翻訳、編集、読み上げ、削除）を配置する分離レイアウト（margin-right: auto）を実装。(3) アクションバー内のボタンサイズをスリム化（min-height: 32px、padding: 0 10px、font-size: 12px、アイコン14px）し、カード本文との境界線（border-top）と余白を整備。モバイル端末でも1行目（拡大表示）と2行目（他言語・編集・読み上げ）に整然と収まるように改善。(4) 画面幅360px以下の超小型端末向けメディアクエリにもボタンスタイルの詰めを追加。(5) package.json（1.1.1）およびREADME.mdを更新し、カゴヤVPSへ本番デプロイ完了。
+編集したファイルパス:
+- package.json
+- styles/main.scss
+- README.md

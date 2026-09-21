@@ -916,9 +916,32 @@ button {
 
   &__actions {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 6px;
-    margin-top: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+
+    .bubble__focus-btn {
+      margin-right: auto;
+    }
+
+    .btn {
+      min-height: 32px;
+      padding: 0 10px;
+      font-size: 12px;
+      gap: 5px;
+      border-radius: var(--radius-sm);
+      flex-shrink: 0;
+
+      svg {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+      }
+    }
   }
 }
 @keyframes rise {
@@ -1599,10 +1622,28 @@ button {
 
   &__actions {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 6px;
     margin-top: 8px;
-    flex-wrap: wrap;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+
+    .btn {
+      min-height: 32px;
+      padding: 0 10px;
+      font-size: 12px;
+      gap: 5px;
+      border-radius: var(--radius-sm);
+      flex-shrink: 0;
+
+      svg {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+      }
+    }
   }
 }
 .empty {
@@ -1829,6 +1870,16 @@ button {
       padding: 0 6px;
       font-size: 11px;
       gap: 2px;
+    }
+  }
+  .bubble__actions,
+  .history__actions {
+    gap: 4px;
+    .btn {
+      min-height: 28px;
+      padding: 0 8px;
+      font-size: 11px;
+      gap: 3px;
     }
   }
 }
