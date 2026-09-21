@@ -162,6 +162,19 @@ const el = {
   langModalSwap: $('langModalSwap'),
   langModalHint: $('langModalHint'),
   langModalGrid: $('langModalGrid'),
+  statusModal: $('statusModal'),
+  statusModalBackdrop: $('statusModalBackdrop'),
+  statusModalClose: $('statusModalClose'),
+  statusModalDot: $('statusModalDot'),
+  statusModalSummaryBadge: $('statusModalSummaryBadge'),
+  statusModalSummaryText: $('statusModalSummaryText'),
+  statusModalModeVal: $('statusModalModeVal'),
+  statusModalNetVal: $('statusModalNetVal'),
+  statusModalPairVal: $('statusModalPairVal'),
+  statusModalModelsSection: $('statusModalModelsSection'),
+  statusModalModelsList: $('statusModalModelsList'),
+  statusModalSettingsBtn: $('statusModalSettingsBtn'),
+  statusModalDoneBtn: $('statusModalDoneBtn'),
 };
 
 // 文字サイズ設定マッピング
@@ -420,6 +433,60 @@ function unloadModel(key) {
 
 const currentRequired = () => requiredModels(settings.langA, settings.langB, settings.whisperSize);
 
+// 現在の言語ペアに必要な翻訳モデル一覧（重複なし）
+function currentRequiredMtModels(langA = settings.langA, langB = settings.langB) {
+  const seen = new Set();
+  const list = [];
+  for (const [src, dst] of [
+    [langA, langB],
+    [langB, langA],
+  ]) {
+    const route = routeFor(src, dst);
+    if (!route) continue;
+    for (const s of route) {
+      if (seen.has(s.key)) continue;
+      seen.add(s.key);
+      const [ms, md] = s.dir.split('>');
+      const srcName = LANGUAGES[ms]?.name ?? ms;
+      const dstName = LANGUAGES[md]?.name ?? md;
+      list.push({ key: s.key, kind: 'mt', id: s.id, sizeMB: s.sizeMB, dir: s.dir, label: `翻訳 ${srcName} → ${dstName}` });
+    }
+  }
+  return list;
+}
+
+// 現在の音声認識モデル
+function currentWhisperModel(size = settings.whisperSize) {
+  const w = WHISPER_MODELS[size];
+  return w ? { key: `whisper:${size}`, kind: 'whisper', id: w.id, sizeMB: w.sizeMB, label: w.label } : null;
+}
+
+// 特定言語ペアの翻訳経路モデルがすべて保存されているか
+function isRouteCached(src, dst) {
+  const route = routeFor(src, dst);
+  if (!route || !route.length) return false;
+  return route.every((s) => cachedKeys.get(s.key) === true);
+}
+
+// オフラインで手入力翻訳（指定方向）が可能か（翻訳モデルが揃っていれば音声認識不要）
+function isOfflineTranslationReady(src, dst) {
+  return isRouteCached(src, dst);
+}
+
+// オフラインで音声認識＋翻訳が可能か
+function isOfflineSpeechReady() {
+  if (!pairSupported(settings.langA, settings.langB)) return false;
+  const wm = currentWhisperModel();
+  if (!wm || cachedKeys.get(wm.key) !== true) return false;
+  const mtModels = currentRequiredMtModels();
+  return mtModels.length > 0 && mtModels.every((m) => cachedKeys.get(m.key) === true);
+}
+
+// 音声入力が今すぐ利用可能か（オンライン時はtrue、オフライン時はisOfflineSpeechReady）
+function isSpeechReady() {
+  return useOnline() ? true : isOfflineSpeechReady();
+}
+
 // iPhone はメモリ上限が低く、超えるとページごと強制終了される。
 // 実機ログ(2026-09-16): 音声認識(大)249MB + 翻訳109MB の読み込みは成功し、そこへ翻訳145MB を読み込み始めた直後に強制終了。
 // iOS端末では常時メモリへ載せるのは音声認識(Whisper)のみとし、翻訳モデルは翻訳時に1つずつ入れ替えてメモリ超過を防ぐ。
@@ -440,47 +507,171 @@ function renderModeChip() {
 function updateReadiness() {
   renderModeChip();
   const supported = pairSupported(settings.langA, settings.langB);
-  const missing = currentRequired().filter(needsLoad);
+  const wm = currentWhisperModel();
+  const mtModels = currentRequiredMtModels();
+  const allReq = currentRequired();
+  const missing = allReq.filter(needsLoad);
   const loadingNow = preparing > 0 || missing.some((m) => loadWaiters.has(m.key) || downloadWaiters.has(m.key));
+
   if (useOnline()) {
-    el.modelBanner.hidden = true;
-    if (!listening && !busy) setStatus('idle');
+    if (!listening && !busy) setStatus('idle', '待機中');
     el.micButton.disabled = settings.langA === settings.langB;
     renderVoiceControls();
     return;
   }
+
   if (!supported) {
-    el.modelBanner.hidden = false;
-    el.modelBannerTitle.textContent = 'この言語の組み合わせはオフライン未対応です';
-    el.modelBannerText.textContent = 'オンラインモードに切り替えるか、設定で言語を変更してください。';
     setStatus('missing', '未対応ペア');
-  } else if (missing.length) {
-    el.modelBanner.hidden = false;
-    const notSaved = missing.filter((m) => cachedKeys.get(m.key) !== true);
-    if (loadingNow) {
-      el.modelBannerTitle.textContent = notSaved.length ? '言語データをダウンロードしています' : '保存済みの言語データを読み込んでいます';
-      el.modelBannerText.textContent = '読み込みが終わると自動で聞き取りを始めます。';
-      setStatus('loading');
-    } else if (notSaved.length) {
-      el.modelBannerTitle.textContent = '言語データが未ダウンロードです';
-      el.modelBannerText.textContent = `設定画面から ${notSaved.map((m) => m.label).join('、')} をダウンロードしてください。${iosSeparateStorage() ? IOS_STORAGE_HINT : ''}`;
-      setStatus('missing');
-    } else if (loadBlockedBy) {
-      el.modelBannerTitle.textContent = '前回、言語データの読み込み中にアプリが強制終了しました';
-      el.modelBannerText.textContent = 'メモリ不足の可能性があるため、自動での読み込みを止めています。設定で音声認識モデルを小さくしてから「読み込む」を押してください。';
-      setStatus('error', '読込停止中');
-    } else {
-      el.modelBannerTitle.textContent = '言語データを読み込めませんでした';
-      el.modelBannerText.textContent = '端末には保存されています。設定画面の「読み込む」を押してください。繰り返す場合は処理ログを確認してください。';
-      setStatus('error', '読込失敗');
-    }
+  } else if (loadingNow) {
+    setStatus('loading', 'モデル読込中');
+  } else if (loadBlockedBy) {
+    setStatus('error', '読込停止中');
   } else {
-    el.modelBanner.hidden = true;
-    if (!listening && !busy) setStatus('idle');
+    const whisperSaved = wm ? cachedKeys.get(wm.key) === true : false;
+    const mtSavedCount = mtModels.filter((m) => cachedKeys.get(m.key) === true).length;
+    const allMtSaved = mtModels.length > 0 && mtSavedCount === mtModels.length;
+
+    if (whisperSaved && allMtSaved) {
+      if (!listening && !busy) setStatus('idle', '待機中');
+    } else if (allMtSaved && !whisperSaved) {
+      setStatus('missing', '音声未DL(手入力可)');
+    } else {
+      setStatus('missing', 'データ未DL');
+    }
   }
+
   el.micButton.disabled = !supported;
   renderVoiceControls();
 }
+
+// 動作ステータス詳細モーダル
+function openStatusModal() {
+  if (!el.statusModal) return;
+  renderStatusModal();
+  el.statusModal.hidden = false;
+}
+
+function closeStatusModal() {
+  if (!el.statusModal) return;
+  el.statusModal.hidden = true;
+}
+
+function renderStatusModal() {
+  if (!el.statusModal) return;
+  const on = useOnline();
+  const netOnline = navigator.onLine;
+  const state = el.status?.dataset?.state || 'idle';
+  const supported = pairSupported(settings.langA, settings.langB);
+  const langAInfo = LANGUAGES[settings.langA] || { name: settings.langA, flag: '🌐' };
+  const langBInfo = LANGUAGES[settings.langB] || { name: settings.langB, flag: '🌐' };
+
+  // ドットの色同期
+  if (el.statusModalDot) {
+    el.statusModalDot.className = 'status-modal__dot';
+    if (state === 'listening' || state === 'hearing') el.statusModalDot.style.background = 'var(--accent)';
+    else if (state === 'transcribing' || state === 'translating' || state === 'loading') el.statusModalDot.style.background = 'var(--side-b)';
+    else if (state === 'error' || state === 'missing') el.statusModalDot.style.background = 'var(--danger)';
+    else el.statusModalDot.style.background = 'var(--fg-muted)';
+  }
+
+  // モードと通信
+  const modeText = settings.mode === 'online' ? 'オンライン優先' : settings.mode === 'offline' ? 'オフライン固定' : '自動判別';
+  if (el.statusModalModeVal) {
+    el.statusModalModeVal.textContent = `${modeText}（現在: ${on ? 'オンライン実行' : 'オフライン実行'}）`;
+  }
+  if (el.statusModalNetVal) {
+    el.statusModalNetVal.textContent = netOnline ? 'インターネット接続中' : '未接続（圏外・機内モード等）';
+  }
+  if (el.statusModalPairVal) {
+    el.statusModalPairVal.textContent = `${langAInfo.flag} ${langAInfo.name} ⇄ ${langBInfo.flag} ${langBInfo.name}`;
+  }
+
+  // 要約カード
+  const wm = currentWhisperModel();
+  const mtModels = currentRequiredMtModels();
+  const whisperSaved = wm ? cachedKeys.get(wm.key) === true : false;
+  const allMtSaved = mtModels.length > 0 && mtModels.every((m) => cachedKeys.get(m.key) === true);
+  const allReq = currentRequired();
+  const missing = allReq.filter(needsLoad);
+  const loadingNow = preparing > 0 || missing.some((m) => loadWaiters.has(m.key) || downloadWaiters.has(m.key));
+
+  if (el.statusModalSummaryBadge && el.statusModalSummaryText) {
+    el.statusModalSummaryBadge.className = 'status-modal__summary-badge';
+
+    if (on) {
+      el.statusModalSummaryBadge.textContent = 'オンライン翻訳 稼働中';
+      el.statusModalSummaryBadge.classList.add('is-ready');
+      el.statusModalSummaryText.textContent = 'Gemini API による高速・高精度なクラウド翻訳が利用可能です。端末への言語データダウンロードは不要で、音声入力・手入力ともにすぐ使えます。';
+    } else if (!supported) {
+      el.statusModalSummaryBadge.textContent = 'オフライン未対応言語ペア';
+      el.statusModalSummaryBadge.classList.add('is-missing');
+      el.statusModalSummaryText.textContent = '現在選択されている言語ペアはオフライン翻訳に対応していません。オンラインモードに切り替えるか、対応言語を選択してください。';
+    } else if (loadingNow) {
+      el.statusModalSummaryBadge.textContent = '言語データ読み込み中';
+      el.statusModalSummaryBadge.classList.add('is-loading');
+      el.statusModalSummaryText.textContent = '端末内の言語モデルデータをメモリへ展開中です。完了するまで少々お待ちください。';
+    } else if (whisperSaved && allMtSaved) {
+      el.statusModalSummaryBadge.textContent = 'オフライン完全対応（準備完了）';
+      el.statusModalSummaryBadge.classList.add('is-ready');
+      el.statusModalSummaryText.textContent = '必要なすべての言語データが端末に保存されています。インターネット接続がない場所でも、音声入力・手入力ともにオフラインで翻訳できます。';
+    } else if (allMtSaved && !whisperSaved) {
+      el.statusModalSummaryBadge.textContent = '手入力翻訳のみ利用可能';
+      el.statusModalSummaryBadge.classList.add('is-missing');
+      el.statusModalSummaryText.textContent = '翻訳モデルが保存されているため、キーボード手入力でのオフライン翻訳は利用可能です。マイク音声入力を利用するには、設定画面から音声認識モデル（Whisper）をダウンロードしてください。';
+    } else {
+      el.statusModalSummaryBadge.textContent = '言語データ未ダウンロード';
+      el.statusModalSummaryBadge.classList.add('is-missing');
+      el.statusModalSummaryText.textContent = 'オフライン翻訳に必要なデータが保存されていません。オフラインで利用するには、設定画面から言語データをダウンロードしてください（手入力には翻訳データ、音声入力には音声認識データが必要です）。';
+    }
+  }
+
+  // モデルリストの描画
+  if (el.statusModalModelsList) {
+    el.statusModalModelsList.innerHTML = '';
+    if (wm) {
+      const li = document.createElement('li');
+      li.className = 'status-modal__model-item';
+      const isSaved = cachedKeys.get(wm.key) === true;
+      const isLoading = loadWaiters.has(wm.key) || downloadWaiters.has(wm.key);
+      li.innerHTML = `
+        <div class="status-modal__model-info">
+          <span class="status-modal__model-name">🎙️ ${wm.label}</span>
+          <span class="status-modal__model-desc">音声入力（マイク）で使用 ・ 約${wm.sizeMB}MB</span>
+        </div>
+        <span class="status-modal__model-status ${isLoading ? 'is-loading' : isSaved ? 'is-saved' : 'is-not-saved'}">
+          ${isLoading ? '読込中' : isSaved ? '保存済み' : '未ダウンロード'}
+        </span>
+      `;
+      el.statusModalModelsList.appendChild(li);
+    }
+
+    for (const m of mtModels) {
+      const li = document.createElement('li');
+      li.className = 'status-modal__model-item';
+      const isSaved = cachedKeys.get(m.key) === true;
+      const isLoading = loadWaiters.has(m.key) || downloadWaiters.has(m.key);
+      li.innerHTML = `
+        <div class="status-modal__model-info">
+          <span class="status-modal__model-name">🌐 ${m.label}</span>
+          <span class="status-modal__model-desc">手入力および音声翻訳で使用 ・ 約${m.sizeMB}MB</span>
+        </div>
+        <span class="status-modal__model-status ${isLoading ? 'is-loading' : isSaved ? 'is-saved' : 'is-not-saved'}">
+          ${isLoading ? '読込中' : isSaved ? '保存済み' : '未ダウンロード'}
+        </span>
+      `;
+      el.statusModalModelsList.appendChild(li);
+    }
+  }
+}
+
+el.status?.addEventListener('click', openStatusModal);
+el.statusModalClose?.addEventListener('click', closeStatusModal);
+el.statusModalBackdrop?.addEventListener('click', closeStatusModal);
+el.statusModalDoneBtn?.addEventListener('click', closeStatusModal);
+el.statusModalSettingsBtn?.addEventListener('click', () => {
+  closeStatusModal();
+  showView('settings');
+});
 
 // 保存済み(キャッシュ済み)のモデルをすべて読み込む。未保存のものは download=true のときだけ取得する。
 async function ensureModels({ download = false } = {}) {
@@ -815,9 +1006,31 @@ async function processQueue() {
 }
 
 async function handleJob(job) {
-  if (!isReady()) {
-    toast('言語データが揃っていないため処理できません');
-    return;
+  const onlineMode = useOnline();
+  if (!onlineMode) {
+    if (job.kind === 'audio') {
+      if (!isOfflineSpeechReady()) {
+        const wm = currentWhisperModel();
+        const whisperMissing = wm && cachedKeys.get(wm.key) !== true;
+        if (whisperMissing) {
+          toast(`オフライン音声認識モデル（${wm.label}）が未ダウンロードです`);
+        } else {
+          toast('オフライン翻訳データが未ダウンロードです');
+        }
+        openStatusModal();
+        return;
+      }
+    } else {
+      const srcLang = detectTextLang(job.text, settings.langA, settings.langB);
+      const dstLang = otherLang(srcLang);
+      if (!isOfflineTranslationReady(srcLang, dstLang)) {
+        const srcName = LANGUAGES[srcLang]?.name || srcLang;
+        const dstName = LANGUAGES[dstLang]?.name || dstLang;
+        toast(`オフライン翻訳データ（${srcName} → ${dstName}）が未ダウンロードです`);
+        openStatusModal();
+        return;
+      }
+    }
   }
   if (job.kind === 'audio' && isSilentAudio(job.audio)) {
     log.info('無音・音声入力なしのため処理破棄');
@@ -829,7 +1042,6 @@ async function handleJob(job) {
   currentJobAbortCtrl = abortCtrl;
   const signal = abortCtrl.signal;
 
-  const onlineMode = useOnline();
   const pendingEl = showPendingBubble(job.kind === 'audio' ? (onlineMode ? '送信中…' : '聞き取り中…') : job.text);
   currentPendingEl = pendingEl;
 
@@ -984,10 +1196,16 @@ let wasListeningBeforeHidden = false;
 async function startListening() {
   if (settings.speechDetectMode !== 'auto') return false;
   if (listening) return true;
-  if (!isReady()) {
+  if (!useOnline() && !isOfflineSpeechReady()) {
     updateReadiness();
-    showView('settings');
-    toast('先に言語データをダウンロードするか、オンラインモードに切り替えてください');
+    const wm = currentWhisperModel();
+    const whisperMissing = wm && cachedKeys.get(wm.key) !== true;
+    if (whisperMissing) {
+      toast(`オフライン音声認識モデル（${wm.label}）が未ダウンロードです`);
+    } else {
+      toast('オフライン翻訳データが未ダウンロードです');
+    }
+    openStatusModal();
     return false;
   }
   try {
@@ -2945,6 +3163,10 @@ auth.onChange((isLoggedIn) => {
 
 window.addEventListener('keydown', async (e) => {
   if (e.key === 'Escape') {
+    if (el.statusModal && !el.statusModal.hidden) {
+      closeStatusModal();
+      return;
+    }
     if (!el.langModal.hidden) {
       closeLangModal();
       return;
@@ -3012,10 +3234,16 @@ async function startPtt(mode, targetBtn, pointerId = null) {
   } else {
     tts.stop();
   }
-  if (!isReady()) {
+  if (!useOnline() && !isOfflineSpeechReady()) {
     updateReadiness();
-    showView('settings');
-    toast('先に言語データをダウンロードするか、オンラインモードに切り替えてください');
+    const wm = currentWhisperModel();
+    const whisperMissing = wm && cachedKeys.get(wm.key) !== true;
+    if (whisperMissing) {
+      toast(`オフライン音声認識モデル（${wm.label}）が未ダウンロードです`);
+    } else {
+      toast('オフライン翻訳データが未ダウンロードです');
+    }
+    openStatusModal();
     return;
   }
 
@@ -3282,8 +3510,7 @@ async function boot() {
     setStatus('loading', 'モデル読込中');
     const offlineOk = await ensureModels();
     updateReadiness();
-    if (isReady() && settings.speechDetectMode === 'auto' && settings.autoListen) await startListening();
-    else if (!offlineOk) showView('settings');
+    if (isSpeechReady() && settings.speechDetectMode === 'auto' && settings.autoListen) await startListening();
   }
 
   // 上限が極端に小さい場合はプライベートブラウズやアプリ内ブラウザ(閉じると保存データが消える環境)の可能性がある

@@ -25,22 +25,18 @@
           <span class="pair__lang" id="pairB">🇺🇸</span>
         </button>
         <button class="mode" id="modeChip" type="button" data-mode="offline" aria-label="翻訳モードを変更">オフライン</button>
-        <div class="status" id="status" data-state="idle">
+        <button class="status" id="status" type="button" data-state="idle" aria-label="動作ステータスの詳細を表示" title="動作ステータスの詳細を表示">
           <span class="status__dot" aria-hidden="true"></span>
           <span class="status__text" id="statusText">準備中</span>
-        </div>
+          <svg class="status__info-icon" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+            <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+          </svg>
+        </button>
       </header>
 
       <main class="views">
         <!-- 会話 -->
         <section class="view view--talk" data-view="talk">
-          <div class="banner" id="modelBanner" hidden>
-            <div class="banner__body">
-              <strong id="modelBannerTitle">翻訳モデルが未ダウンロードです</strong>
-              <span id="modelBannerText">設定画面から言語データをダウンロードしてください。</span>
-            </div>
-            <button class="btn btn--small" type="button" id="modelBannerAction">設定へ</button>
-          </div>
           <div class="banner banner--warn" id="micBanner" hidden>
             <div class="banner__body">
               <strong>マイクが開始できません</strong>
@@ -414,6 +410,56 @@
           <div class="lang-modal__body">
             <div class="lang-modal__hint" id="langModalHint">言語 A を選択してください</div>
             <div class="lang-modal__grid" id="langModalGrid"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 動作ステータス詳細モーダル -->
+      <div class="status-modal" id="statusModal" hidden>
+        <div class="status-modal__backdrop" id="statusModalBackdrop"></div>
+        <div class="status-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="statusModalTitle">
+          <div class="status-modal__head">
+            <div class="status-modal__head-lead">
+              <span class="status-modal__dot" id="statusModalDot" aria-hidden="true"></span>
+              <h2 class="status-modal__title" id="statusModalTitle">動作ステータス詳細</h2>
+            </div>
+            <button class="btn btn--icon btn--ghost status-modal__close" id="statusModalClose" type="button" aria-label="閉じる">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
+          </div>
+          <div class="status-modal__body">
+            <!-- 現在のステータス要約カード -->
+            <div class="status-modal__summary-card">
+              <div class="status-modal__summary-badge" id="statusModalSummaryBadge">待機中</div>
+              <p class="status-modal__summary-text" id="statusModalSummaryText">準備完了しています。</p>
+            </div>
+
+            <!-- 通信・モード情報 -->
+            <div class="status-modal__info-group">
+              <div class="status-modal__info-row">
+                <span class="status-modal__info-label">翻訳モード</span>
+                <span class="status-modal__info-value" id="statusModalModeVal">オンライン</span>
+              </div>
+              <div class="status-modal__info-row">
+                <span class="status-modal__info-label">インターネット通信</span>
+                <span class="status-modal__info-value" id="statusModalNetVal">接続中</span>
+              </div>
+              <div class="status-modal__info-row">
+                <span class="status-modal__info-label">現在の言語ペア</span>
+                <span class="status-modal__info-value" id="statusModalPairVal">🇯🇵 日本語 ⇄ 🇺🇸 英語</span>
+              </div>
+            </div>
+
+            <!-- オフライン言語データ状況 -->
+            <div class="status-modal__models" id="statusModalModelsSection">
+              <h3 class="status-modal__models-title">必要な端末内データ状況</h3>
+              <p class="status-modal__models-sub" id="statusModalModelsSub">オフライン環境で翻訳を行うには、以下のデータが端末に保存されている必要があります。</p>
+              <ul class="status-modal__models-list" id="statusModalModelsList"></ul>
+            </div>
+          </div>
+          <div class="status-modal__actions">
+            <button class="btn btn--secondary status-modal__btn-settings" id="statusModalSettingsBtn" type="button">設定・データ管理へ</button>
+            <button class="btn btn--primary status-modal__btn-close" id="statusModalDoneBtn" type="button">閉じる</button>
           </div>
         </div>
       </div>
