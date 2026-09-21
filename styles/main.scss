@@ -352,23 +352,51 @@ button {
 }
 
 // ---- conversation ----
-// ---- talk navigation (前後の会話めくり) ----
-.talk-nav {
+// ---- focus navigation (カード押下時のフォーカスナビ) ----
+.focus-nav {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px 4px;
-  background: transparent;
+  padding: 6px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
   flex: none;
+  animation: slideDown 0.18s ease-out;
 
   &__inner {
+    width: 100%;
+    max-width: 680px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  &__back {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    background: var(--bg-sunken);
-    padding: 4px 8px;
-    border-radius: var(--radius-sm);
+    gap: 6px;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--fg);
+    background: var(--bg-elev);
     border: 1px solid var(--line);
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, transform 0.1s, border-color 0.15s;
+
+    @media (hover: hover) {
+      &:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
+      }
+    }
+
+    &:active {
+      transform: scale(0.96);
+    }
   }
 
   &__info {
@@ -415,38 +443,28 @@ button {
   &__btns {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
   }
 
   &__btn {
     height: 32px;
     min-height: 32px;
-    padding: 0 9px;
+    padding: 0 8px;
     border-radius: var(--radius-sm);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--fg);
     background: var(--bg-elev);
     border: 1px solid var(--line);
+    color: var(--fg);
     cursor: pointer;
-    transition: background 0.15s, opacity 0.15s, transform 0.1s, border-color 0.15s;
-    user-select: none;
-    -webkit-user-select: none;
-    white-space: nowrap;
-
-    svg {
-      flex-shrink: 0;
-    }
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
 
     @media (hover: hover) {
       &:hover:not(:disabled) {
-        background: color-mix(in srgb, var(--accent) 14%, var(--bg-elev));
         border-color: var(--accent);
         color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 10%, var(--bg-elev));
       }
     }
 
@@ -470,17 +488,50 @@ button {
   overscroll-behavior: contain;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
-  padding: 8px 16px 8px;
+  padding: 8px 16px 16px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
 
-  &__single {
+  &__list {
     width: 100%;
-    max-width: 640px;
+    max-width: 680px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
+    gap: 12px;
+    padding: 4px 0 16px;
+
+    .bubble {
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+
+      @media (hover: hover) {
+        &:hover {
+          border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+          box-shadow: 0 3px 12px -2px rgba(0, 0, 0, 0.12);
+        }
+      }
+
+      &:active {
+        transform: scale(0.992);
+      }
+    }
+  }
+
+  &__focus {
+    width: 100%;
+    max-width: 680px;
+    margin: auto auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 12px 0 20px;
+    animation: fadeIn 0.2s ease-out;
+
+    .bubble {
+      box-shadow: 0 8px 30px -6px rgba(0, 0, 0, 0.22);
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+    }
   }
 
   &__empty {
@@ -1756,7 +1807,7 @@ button {
     font-size: 12px;
     gap: 6px;
   }
-  .talk-nav {
+  .focus-nav {
     padding: 3px 6px;
     gap: 4px;
 

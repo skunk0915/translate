@@ -82,13 +82,15 @@ const el = {
   micBanner: $('micBanner'),
   micBannerText: $('micBannerText'),
   micBannerAction: $('micBannerAction'),
-  talkNav: $('talkNav'),
-  talkBadge: $('talkBadge'),
-  talkCounter: $('talkCounter'),
-  talkPastBtn: $('talkPastBtn'),
-  talkFutureBtn: $('talkFutureBtn'),
-  talkCardContainer: $('talkCardContainer'),
+  focusNav: $('focusNav'),
+  focusBackBtn: $('focusBackBtn'),
+  focusBadge: $('focusBadge'),
+  focusCounter: $('focusCounter'),
+  focusPastBtn: $('focusPastBtn'),
+  focusFutureBtn: $('focusFutureBtn'),
   conversation: $('conversation'),
+  conversationList: $('conversationList'),
+  conversationFocus: $('conversationFocus'),
   conversationEmpty: $('conversationEmpty'),
   textInput: $('textInput'),
   textSend: $('textSend'),
@@ -213,16 +215,19 @@ function setStatus(state, text) {
 }
 
 function showView(name) {
-  el.app.dataset.view = name;
+  const targetView = name === 'history' ? 'talk' : name;
+  el.app.dataset.view = targetView;
   document.querySelectorAll('.tabbar__item').forEach((b) => {
     if (b.dataset.viewTarget === name) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
-  if (name === 'talk' && settings.speechDetectMode === 'manual') {
-    pttRecorder.warmup().catch(() => {});
+  if (targetView === 'talk') {
+    exitTalkFocus();
+    if (settings.speechDetectMode === 'manual') {
+      pttRecorder.warmup().catch(() => {});
+    }
   }
-  if (name === 'history') renderHistory();
-  if (name === 'settings') {
+  if (targetView === 'settings') {
     renderAccount();
     renderMode();
     renderModelList();
@@ -1244,6 +1249,8 @@ function bindLongPress(element, onLongPress, options = {}) {
 
 const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>';
 const CHECK_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+const EXPAND_ICON_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>';
+const SHRINK_ICON_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>';
 
 async function copyTextWithFeedback(btn, text, label = 'テキスト') {
   if (!text) return;
@@ -1377,7 +1384,7 @@ function renderHistoryExtras(container, entry, onUpdate) {
   }
 }
 
-function bubbleEl(entry, index = 0, total = 1) {
+function bubbleEl(entry, index = 0, total = 1, isFocused = false) {
   const side = entry.srcLang === settings.langA ? 'a' : 'b';
   const src = LANGUAGES[entry.srcLang];
   const dst = LANGUAGES[entry.dstLang];
@@ -1387,12 +1394,12 @@ function bubbleEl(entry, index = 0, total = 1) {
   const posBadgeClass = isLatest ? 'bubble__badge bubble__badge--latest' : (isOldest ? 'bubble__badge bubble__badge--oldest' : 'bubble__badge');
 
   const art = document.createElement('article');
-  art.className = `bubble bubble--${side}`;
+  art.className = `bubble bubble--${side} ${isFocused ? 'bubble--focused' : ''}`;
   art.dataset.id = entry.id;
   art.innerHTML = `
     <div class="bubble__meta"><span class="${posBadgeClass}">${posBadgeText}</span><span class="bubble__langs"><span>${src.flag} ${src.name}</span><span class="bubble__arrow">→</span><span>${dst.flag} ${dst.name}</span></span><span class="bubble__mode">${entry.mode === 'online' ? 'オンライン' : 'オフライン'}</span><time>${timeFmt(entry.ts)}</time></div>
     <div class="bubble__src-row">
-      <p class="bubble__src" tabindex="0" role="button" aria-label="タップでコピー、長押しで編集" title="タップでコピー、長押しで編集"></p>
+      <p class="bubble__src"></p>
       <button class="btn btn--icon btn--ghost bubble__copy-btn" type="button" data-action="copy-src" aria-label="原文をコピー" title="原文をコピー">
         ${COPY_ICON_SVG}
       </button>
@@ -1423,6 +1430,10 @@ function bubbleEl(entry, index = 0, total = 1) {
       <div class="bubble__translate-status" hidden></div>
     </div>
     <div class="bubble__actions">
+      <button class="btn btn--ghost btn--small bubble__focus-btn" type="button" data-action="focus" aria-label="${isFocused ? '一覧に戻る' : 'このカードだけを表示'}" title="${isFocused ? '一覧に戻る' : 'このカードだけを表示'}">
+        ${isFocused ? SHRINK_ICON_SVG : EXPAND_ICON_SVG}
+        <span>${isFocused ? '一覧に戻る' : '拡大表示'}</span>
+      </button>
       <button class="btn btn--ghost btn--small" type="button" data-action="translate-other">
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="m12.87 15.07-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7 1.62-4.33L19.12 17h-3.24z"/></svg>
         別の言語での翻訳
@@ -1442,6 +1453,7 @@ function bubbleEl(entry, index = 0, total = 1) {
   const dstEl = art.querySelector('.bubble__dst');
   const copySrcBtn = art.querySelector('[data-action="copy-src"]');
   const copyDstBtn = art.querySelector('[data-action="copy-dst"]');
+  const focusBtn = art.querySelector('[data-action="focus"]');
   const extrasContainer = art.querySelector('.bubble__extras');
   const translateForm = art.querySelector('.bubble__translate-form');
   const translateSelect = art.querySelector('.bubble__translate-select');
@@ -1458,6 +1470,30 @@ function bubbleEl(entry, index = 0, total = 1) {
 
   srcEl.textContent = entry.srcText;
   dstEl.textContent = entry.dstText;
+
+  focusBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isFocused) {
+      exitTalkFocus();
+    } else {
+      openTalkFocus(entry.id);
+    }
+  });
+
+  art.addEventListener('click', (e) => {
+    if (e.target.closest('button, textarea, input, select, a, [data-action], .bubble__copy-btn, .bubble__extra-btn')) {
+      return;
+    }
+    const selection = window.getSelection();
+    if (selection && selection.toString().trim().length > 0) {
+      return;
+    }
+    if (isFocused) {
+      exitTalkFocus();
+    } else {
+      openTalkFocus(entry.id);
+    }
+  });
 
   copySrcBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1691,44 +1727,118 @@ function bubbleEl(entry, index = 0, total = 1) {
   return art;
 }
 
-let currentTalkIndex = 0;
+let isFocusMode = false;
+let focusedEntryId = null;
+let currentFocusIndex = 0;
+
+function renderFocusView(all, targetIndex) {
+  const total = all.length;
+  if (total === 0) return;
+
+  isFocusMode = true;
+  currentFocusIndex = Math.max(0, Math.min(targetIndex, total - 1));
+  const entry = all[currentFocusIndex];
+  focusedEntryId = entry ? entry.id : null;
+
+  if (el.focusNav) el.focusNav.hidden = false;
+  if (el.conversationList) el.conversationList.hidden = true;
+  if (el.conversationFocus) el.conversationFocus.hidden = false;
+
+  if (el.focusCounter) el.focusCounter.textContent = `${currentFocusIndex + 1} / ${total}`;
+  if (el.focusPastBtn) el.focusPastBtn.disabled = currentFocusIndex === total - 1;
+  if (el.focusFutureBtn) el.focusFutureBtn.disabled = currentFocusIndex === 0;
+
+  if (el.focusBadge) {
+    if (currentFocusIndex === 0) {
+      el.focusBadge.textContent = '最新';
+      el.focusBadge.className = 'focus-nav__badge focus-nav__badge--latest';
+    } else if (currentFocusIndex === total - 1 && total > 1) {
+      el.focusBadge.textContent = '最古';
+      el.focusBadge.className = 'focus-nav__badge focus-nav__badge--oldest';
+    } else {
+      el.focusBadge.textContent = `${currentFocusIndex}件前`;
+      el.focusBadge.className = 'focus-nav__badge';
+    }
+  }
+
+  if (el.conversationFocus) {
+    el.conversationFocus.innerHTML = '';
+    if (entry) {
+      el.conversationFocus.appendChild(bubbleEl(entry, currentFocusIndex, total, true));
+    }
+  }
+}
 
 async function renderTalk() {
   const all = await history.all();
   const total = all.length;
 
   if (total === 0) {
-    currentTalkIndex = 0;
-    el.talkNav.hidden = true;
-    el.conversationEmpty.hidden = false;
-    el.talkCardContainer.innerHTML = '';
+    isFocusMode = false;
+    focusedEntryId = null;
+    currentFocusIndex = 0;
+    if (el.focusNav) el.focusNav.hidden = true;
+    if (el.conversationFocus) {
+      el.conversationFocus.hidden = true;
+      el.conversationFocus.innerHTML = '';
+    }
+    if (el.conversationList) {
+      el.conversationList.hidden = true;
+      el.conversationList.innerHTML = '';
+    }
+    if (el.conversationEmpty) el.conversationEmpty.hidden = false;
     return;
   }
 
-  el.conversationEmpty.hidden = true;
-  el.talkNav.hidden = false;
+  if (el.conversationEmpty) el.conversationEmpty.hidden = true;
 
-  currentTalkIndex = Math.max(0, Math.min(currentTalkIndex, total - 1));
-  el.talkCounter.textContent = `${currentTalkIndex + 1} / ${total}`;
-  el.talkPastBtn.disabled = currentTalkIndex === total - 1;
-  el.talkFutureBtn.disabled = currentTalkIndex === 0;
-
-  if (el.talkBadge) {
-    if (currentTalkIndex === 0) {
-      el.talkBadge.textContent = '最新';
-      el.talkBadge.className = 'talk-nav__badge talk-nav__badge--latest';
-    } else if (currentTalkIndex === total - 1 && total > 1) {
-      el.talkBadge.textContent = '最古';
-      el.talkBadge.className = 'talk-nav__badge talk-nav__badge--oldest';
-    } else {
-      el.talkBadge.textContent = `${currentTalkIndex}件前`;
-      el.talkBadge.className = 'talk-nav__badge';
+  if (isFocusMode && focusedEntryId) {
+    let idx = all.findIndex((e) => e.id === focusedEntryId);
+    if (idx === -1) {
+      idx = Math.max(0, Math.min(currentFocusIndex, total - 1));
+    }
+    renderFocusView(all, idx);
+  } else {
+    isFocusMode = false;
+    if (el.focusNav) el.focusNav.hidden = true;
+    if (el.conversationFocus) {
+      el.conversationFocus.hidden = true;
+      el.conversationFocus.innerHTML = '';
+    }
+    if (el.conversationList) {
+      el.conversationList.hidden = false;
+      el.conversationList.innerHTML = '';
+      for (let i = 0; i < total; i++) {
+        el.conversationList.appendChild(bubbleEl(all[i], i, total, false));
+      }
     }
   }
+}
 
-  const entry = all[currentTalkIndex];
-  el.talkCardContainer.innerHTML = '';
-  el.talkCardContainer.appendChild(bubbleEl(entry, currentTalkIndex, total));
+async function openTalkFocus(entryId) {
+  const all = await history.all();
+  const idx = all.findIndex((e) => e.id === entryId);
+  renderFocusView(all, idx >= 0 ? idx : 0);
+}
+
+function exitTalkFocus() {
+  if (!isFocusMode) return;
+  const prevId = focusedEntryId;
+  isFocusMode = false;
+  focusedEntryId = null;
+  if (el.focusNav) el.focusNav.hidden = true;
+  if (el.conversationFocus) {
+    el.conversationFocus.hidden = true;
+    el.conversationFocus.innerHTML = '';
+  }
+  if (el.conversationList) el.conversationList.hidden = false;
+
+  if (prevId && el.conversationList) {
+    const card = el.conversationList.querySelector(`.bubble[data-id="${prevId}"]`);
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
 }
 
 // 互換性のため renderRecent() も renderTalk() を呼び出す
@@ -1737,63 +1847,71 @@ async function renderRecent() {
 }
 
 async function appendBubble(entry) {
-  // 新しい発話が追加されたら、最新の1件（インデックス 0）を表示
-  currentTalkIndex = 0;
+  // 新しい発話が追加されたら、一覧モードで最上部に表示
+  isFocusMode = false;
+  focusedEntryId = null;
+  el.conversation?.querySelector('.bubble--pending')?.remove();
   await renderTalk();
+  el.conversation?.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function showPendingBubble(text) {
-  el.conversationEmpty.hidden = true;
-  el.talkNav.hidden = true;
+  exitTalkFocus();
+  if (el.conversationEmpty) el.conversationEmpty.hidden = true;
+  el.conversation?.querySelector('.bubble--pending')?.remove();
   const art = document.createElement('article');
   art.className = 'bubble bubble--pending';
   art.innerHTML = `<p class="bubble__src"></p><p class="bubble__dst">…</p>`;
   art.querySelector('.bubble__src').textContent = text;
-  el.talkCardContainer.innerHTML = '';
-  el.talkCardContainer.appendChild(art);
+  if (el.conversationList) {
+    el.conversationList.hidden = false;
+    el.conversationList.prepend(art);
+  }
+  el.conversation?.scrollTo({ top: 0, behavior: 'smooth' });
   return art;
 }
 
-// 会話ナビゲーションボタン（上：過去、下：未来）
-el.talkPastBtn.addEventListener('click', async () => {
+// フォーカスナビゲーションボタン（一覧に戻る、過去、未来）
+el.focusBackBtn?.addEventListener('click', exitTalkFocus);
+
+el.focusPastBtn?.addEventListener('click', async () => {
+  if (!isFocusMode) return;
   const all = await history.all();
-  if (currentTalkIndex < all.length - 1) {
-    currentTalkIndex++;
-    renderTalk();
+  if (currentFocusIndex < all.length - 1) {
+    renderFocusView(all, currentFocusIndex + 1);
   }
 });
 
-el.talkFutureBtn.addEventListener('click', () => {
-  if (currentTalkIndex > 0) {
-    currentTalkIndex--;
-    renderTalk();
+el.focusFutureBtn?.addEventListener('click', async () => {
+  if (!isFocusMode) return;
+  const all = await history.all();
+  if (currentFocusIndex > 0) {
+    renderFocusView(all, currentFocusIndex - 1);
   }
 });
 
-// スワイプによる前後の会話めくり
+// スワイプによる前後の会話めくり（フォーカス時のみ動作）
 let talkTouchStartY = 0;
-el.conversation.addEventListener('touchstart', (e) => {
-  if (e.touches.length === 1) {
+el.conversation?.addEventListener('touchstart', (e) => {
+  if (isFocusMode && e.touches.length === 1) {
     talkTouchStartY = e.touches[0].clientY;
   }
 }, { passive: true });
 
-el.conversation.addEventListener('touchend', async (e) => {
-  if (e.changedTouches.length === 1) {
+el.conversation?.addEventListener('touchend', async (e) => {
+  if (isFocusMode && e.changedTouches.length === 1) {
     const deltaY = e.changedTouches[0].clientY - talkTouchStartY;
     if (Math.abs(deltaY) > 50) {
+      const all = await history.all();
       if (deltaY < 0) {
         // 上にスワイプ -> 古い会話へ
-        const all = await history.all();
-        if (currentTalkIndex < all.length - 1) {
-          currentTalkIndex++;
-          renderTalk();
+        if (currentFocusIndex < all.length - 1) {
+          renderFocusView(all, currentFocusIndex + 1);
         }
       } else {
         // 下にスワイプ -> 新しい会話へ
-        if (currentTalkIndex > 0) {
-          currentTalkIndex--;
-          renderTalk();
+        if (currentFocusIndex > 0) {
+          renderFocusView(all, currentFocusIndex - 1);
         }
       }
     }
@@ -2852,11 +2970,16 @@ window.addEventListener('keydown', async (e) => {
   if (e.key === 'Escape') {
     if (!el.langModal.hidden) {
       closeLangModal();
+      return;
+    }
+    if (isFocusMode) {
+      exitTalkFocus();
+      return;
     }
     return;
   }
 
-  // 会話画面を開いている時、かつ入力要素にフォーカスがない場合に ArrowUp / ArrowDown で前後の項目へ切り替え
+  // 会話画面を開いている時、かつ入力要素にフォーカスがない場合に ArrowUp / ArrowDown で前後の項目へ切り替え（フォーカス時のみ）
   const currentView = document.querySelector('.app')?.dataset.view;
   const activeEl = document.activeElement;
   const isInputActive = activeEl && (
@@ -2866,21 +2989,19 @@ window.addEventListener('keydown', async (e) => {
   );
   if (isInputActive) return;
 
-  if (currentView === 'talk') {
+  if (currentView === 'talk' && isFocusMode) {
     if (e.key === 'ArrowUp') {
       // 上キー -> 過去（古い会話）へ
       const all = await history.all();
-      if (currentTalkIndex < all.length - 1) {
+      if (currentFocusIndex < all.length - 1) {
         e.preventDefault();
-        currentTalkIndex++;
-        renderTalk();
+        renderFocusView(all, currentFocusIndex + 1);
       }
     } else if (e.key === 'ArrowDown') {
       // 下キー -> 未来（新しい会話）へ
-      if (currentTalkIndex > 0) {
+      if (currentFocusIndex > 0) {
         e.preventDefault();
-        currentTalkIndex--;
-        renderTalk();
+        renderFocusView(all, currentFocusIndex - 1);
       }
     }
   }

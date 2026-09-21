@@ -49,28 +49,33 @@
             <button class="btn btn--small" type="button" id="micBannerAction">再試行</button>
           </div>
 
-          <!-- 会話ナビゲーション（前後のめくり） -->
-          <div class="talk-nav" id="talkNav" hidden>
-            <div class="talk-nav__inner">
-              <div class="talk-nav__info">
-                <span class="talk-nav__badge" id="talkBadge">最新</span>
-                <span class="talk-nav__counter" id="talkCounter">0 / 0</span>
+          <!-- フォーカス表示時のナビゲーションバー（カード押下時のみ表示） -->
+          <div class="focus-nav" id="focusNav" hidden>
+            <div class="focus-nav__inner">
+              <button class="btn btn--small btn--ghost focus-nav__back" id="focusBackBtn" type="button" aria-label="一覧に戻る">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                <span>一覧に戻る</span>
+              </button>
+              <div class="focus-nav__info">
+                <span class="focus-nav__badge" id="focusBadge">最新</span>
+                <span class="focus-nav__counter" id="focusCounter">0 / 0</span>
               </div>
-              <div class="talk-nav__btns">
-                <button class="btn talk-nav__btn talk-nav__btn--past" id="talkPastBtn" type="button" aria-label="過去（古い会話）へ" title="過去（古い会話）へ [↑]">
+              <div class="focus-nav__btns">
+                <button class="btn talk-nav__btn focus-nav__btn--past" id="focusPastBtn" type="button" aria-label="過去（古い会話）へ" title="過去（古い会話）へ [↑]">
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
-                  <span class="talk-nav__btn-label">過去</span>
                 </button>
-                <button class="btn talk-nav__btn talk-nav__btn--future" id="talkFutureBtn" type="button" aria-label="未来（新しい会話）へ" title="未来（新しい会話）へ [↓]">
+                <button class="btn talk-nav__btn focus-nav__btn--future" id="focusFutureBtn" type="button" aria-label="未来（新しい会話）へ" title="未来（新しい会話）へ [↓]">
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
-                  <span class="talk-nav__btn-label">未来</span>
                 </button>
               </div>
             </div>
           </div>
 
           <div class="conversation" id="conversation" aria-live="polite">
-            <div class="conversation__single" id="talkCardContainer"></div>
+            <!-- 一覧表示コンテナ（全履歴カードが縦スクロールで並ぶ） -->
+            <div class="conversation__list" id="conversationList"></div>
+            <!-- フォーカス表示コンテナ（カード押下時にその1件だけ表示） -->
+            <div class="conversation__focus" id="conversationFocus" hidden></div>
             <div class="conversation__empty" id="conversationEmpty">
               <p class="conversation__hint" id="conversationHint">ボタンを長押ししながら話してください。指を離すと即座に翻訳します。</p>
               <p class="conversation__hint conversation__hint--sub" id="conversationHintSub">マイク（自動認識）または左右の言語ボタンを長押しできます。</p>
